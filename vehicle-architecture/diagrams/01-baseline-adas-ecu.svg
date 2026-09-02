@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="fig" style="color:#16202B;background:#FFFFFF" viewBox="0 0 1100 200" role="img" aria-label="Baseline ADAS ECU architecture: five stages, sensors to actuators, all on the vehicle and repeated per function">
+  <style>
+.fig text{font-family:"IBM Plex Sans","Segoe UI",Helvetica,Arial,sans-serif;font-size:11px;fill:#16202B}
+.fig .t-b{font-weight:600;font-size:12px}
+.fig .t-m{fill:#5B6875}
+.fig .t-s{font-size:10px}
+.fig .t-rail{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.1em;fill:#1F4FD1;font-weight:500}
+.fig .t-title{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12px;letter-spacing:.06em;fill:#16202B;font-weight:500}
+.fig .band-farm{fill:#E4F3F0;stroke:#0F8B7E;stroke-width:1}
+.fig .band-vehicle{fill:#EDF1FA;stroke:#1F4FD1;stroke-width:1}
+.fig .box-farm{fill:#FFFFFF;stroke:#0F8B7E;stroke-width:1.2}
+.fig .box-qm{fill:#FFFFFF;stroke:#1F4FD1;stroke-width:1.2}
+.fig .box-qmb{fill:#EEF2FA;stroke:#1F4FD1;stroke-width:1.2}
+.fig .box-ccu{fill:#FFFFFF;stroke:#16202B;stroke-width:1.6}
+.fig .part-asil{fill:#FBE9E7;stroke:#C43B2F;stroke-width:1.4}
+.fig .part-qmb{fill:#EEF2FA;stroke:#1F4FD1;stroke-width:1.2}
+.fig .part-qm{fill:#FFFFFF;stroke:#1F4FD1;stroke-width:1.2;stroke-dasharray:4 3}
+.fig .box-asil{fill:#FBE9E7;stroke:#C43B2F;stroke-width:1.4}
+.fig .box-wireless{fill:#FBF1DF;stroke:#B8791A;stroke-width:1.4;stroke-dasharray:5 3}
+.fig .ln{stroke:currentColor;stroke-width:1.3;fill:none}
+.fig .ln-w{stroke:#B8791A;stroke-width:1.5;fill:none;stroke-dasharray:5 3}
+.fig .ln-thin{stroke:#9AA5B1;stroke-width:1;fill:none}
+.fig .outline-dashed{fill:none;stroke:#9AA5B1;stroke-width:1.2;stroke-dasharray:6 4}
+.fig .amber-fill{fill:#B8791A}
+</style>
+  <defs>
+    <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <rect class="outline-dashed" x="10" y="10" width="1080" height="150" rx="4"/>
+  <text class="t-rail" x="22" y="30">ALL ON THE VEHICLE · ONE COPY PER FUNCTION OR DOMAIN · 80–100 ECUs · POINT-TO-POINT HARNESS</text>
+
+  <rect class="box-qm" x="30" y="45" width="180" height="100" rx="3"/>
+  <text class="t t-b" x="42" y="68">① SENSORS</text>
+  <text class="t" x="42" y="86">Camera · Radar · LiDAR</text>
+  <text class="t" x="42" y="101">Ultrasonic · GNSS / IMU</text>
+  <text class="t t-m" x="42" y="116">raw capture</text>
+  <text class="t t-m" x="42" y="131">time synchronised</text>
+
+  <rect class="box-qm" x="245" y="45" width="180" height="100" rx="3"/>
+  <text class="t t-b" x="257" y="68">② SoC / MCU</text>
+  <text class="t" x="257" y="86">Multi-core · GPU / DSP / NPU</text>
+  <text class="t" x="257" y="101">RAM · Flash · safety islands</text>
+  <text class="t t-m" x="257" y="116">power management</text>
+  <text class="t t-m" x="257" y="131">real-time execution</text>
+
+  <rect class="box-qm" x="460" y="45" width="180" height="100" rx="3"/>
+  <text class="t t-b" x="472" y="68">③ MIDDLEWARE</text>
+  <text class="t" x="472" y="86">AUTOSAR · OS / scheduler</text>
+  <text class="t" x="472" y="101">CAN · Ethernet · FlexRay</text>
+  <text class="t t-m" x="472" y="116">COM / PDU · UDS</text>
+  <text class="t t-m" x="472" y="131">memory mgmt · security</text>
+
+  <rect class="box-qm" x="675" y="45" width="180" height="100" rx="3"/>
+  <text class="t t-b" x="687" y="68">④ ALGORITHMS</text>
+  <text class="t" x="687" y="86">Perception · classification</text>
+  <text class="t" x="687" y="101">Sensor fusion</text>
+  <text class="t t-m" x="687" y="116">decision making</text>
+  <text class="t t-m" x="687" y="131">path planning · behaviour</text>
+
+  <rect class="box-qm" x="890" y="45" width="180" height="100" rx="3"/>
+  <text class="t t-b" x="902" y="68">⑤ ACTUATORS</text>
+  <text class="t" x="902" y="86">Steering · brake</text>
+  <text class="t" x="902" y="101">Engine / throttle</text>
+  <text class="t t-m" x="902" y="116">HMI · alerts</text>
+  <text class="t t-m" x="902" y="131">lights · indicators</text>
+
+  <line class="ln" x1="210" y1="95" x2="243" y2="95" marker-end="url(#ah1)"/>
+  <line class="ln" x1="425" y1="95" x2="458" y2="95" marker-end="url(#ah1)"/>
+  <line class="ln" x1="640" y1="95" x2="673" y2="95" marker-end="url(#ah1)"/>
+  <line class="ln" x1="855" y1="95" x2="888" y2="95" marker-end="url(#ah1)"/>
+
+  <text class="t-rail" x="120" y="186" text-anchor="middle">SENSE</text>
+  <text class="t-rail" x="442" y="186" text-anchor="middle">THINK</text>
+  <text class="t-rail" x="765" y="186" text-anchor="middle">DECIDE</text>
+  <text class="t-rail" x="980" y="186" text-anchor="middle">ACT</text>
+</svg>

@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="fig" style="color:#16202B;background:#FFFFFF" viewBox="0 0 1100 760" role="img" aria-label="ChromeCar four-tier architecture: regional ECU farm, edge ECU farm at the 5G cell site, and the vehicle with gateway, central compute unit, four zonal controllers and wired safety nodes plus wireless non-safety nodes; every link is labelled with its latency budget">
+  <style>
+.fig text{font-family:"IBM Plex Sans","Segoe UI",Helvetica,Arial,sans-serif;font-size:11px;fill:#16202B}
+.fig .t-b{font-weight:600;font-size:12px}
+.fig .t-m{fill:#5B6875}
+.fig .t-s{font-size:10px}
+.fig .t-rail{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.1em;fill:#1F4FD1;font-weight:500}
+.fig .t-title{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12px;letter-spacing:.06em;fill:#16202B;font-weight:500}
+.fig .band-farm{fill:#E4F3F0;stroke:#0F8B7E;stroke-width:1}
+.fig .band-vehicle{fill:#EDF1FA;stroke:#1F4FD1;stroke-width:1}
+.fig .box-farm{fill:#FFFFFF;stroke:#0F8B7E;stroke-width:1.2}
+.fig .box-qm{fill:#FFFFFF;stroke:#1F4FD1;stroke-width:1.2}
+.fig .box-qmb{fill:#EEF2FA;stroke:#1F4FD1;stroke-width:1.2}
+.fig .box-ccu{fill:#FFFFFF;stroke:#16202B;stroke-width:1.6}
+.fig .part-asil{fill:#FBE9E7;stroke:#C43B2F;stroke-width:1.4}
+.fig .part-qmb{fill:#EEF2FA;stroke:#1F4FD1;stroke-width:1.2}
+.fig .part-qm{fill:#FFFFFF;stroke:#1F4FD1;stroke-width:1.2;stroke-dasharray:4 3}
+.fig .box-asil{fill:#FBE9E7;stroke:#C43B2F;stroke-width:1.4}
+.fig .box-wireless{fill:#FBF1DF;stroke:#B8791A;stroke-width:1.4;stroke-dasharray:5 3}
+.fig .ln{stroke:currentColor;stroke-width:1.3;fill:none}
+.fig .ln-w{stroke:#B8791A;stroke-width:1.5;fill:none;stroke-dasharray:5 3}
+.fig .ln-thin{stroke:#9AA5B1;stroke-width:1;fill:none}
+.fig .outline-dashed{fill:none;stroke:#9AA5B1;stroke-width:1.2;stroke-dasharray:6 4}
+.fig .amber-fill{fill:#B8791A}
+</style>
+  <defs>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="ah2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="amber-fill" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <!-- Tier 3 -->
+  <rect class="band-farm" x="20" y="16" width="1060" height="104" rx="4"/>
+  <text class="t-title" x="130" y="36">TIER 3 · REGIONAL ECU FARM</text>
+  <text class="t t-m" x="340" y="36">green-energy data center · asynchronous · 50–150 ms RTT · one node serves many vehicles</text>
+  <text class="t-rail" x="70" y="66" text-anchor="middle">LEARN</text>
+  <text class="t-rail" x="70" y="80" text-anchor="middle">UPDATE</text>
+  <text class="t-rail" x="70" y="94" text-anchor="middle">ALLOCATE</text>
+
+  <rect class="box-farm" x="130" y="48" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="142" y="70">OTA · entitlements</text>
+  <text class="t" x="142" y="86">R156 SUMS · A/B images</text>
+  <text class="t t-m" x="142" y="100">software-unlockable hardware</text>
+
+  <rect class="box-farm" x="368" y="48" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="380" y="70">Fleet learning</text>
+  <text class="t" x="380" y="86">model training on fleet data</text>
+  <text class="t t-m" x="380" y="100">models shipped back via OTA</text>
+
+  <rect class="box-farm" x="606" y="48" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="618" y="70">Digital twin · diagnostics</text>
+  <text class="t" x="618" y="86">predictive maintenance</text>
+  <text class="t t-m" x="618" y="100">remote UDS over DoIP · SOC</text>
+
+  <rect class="box-farm" x="844" y="48" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="856" y="70">Service back-ends</text>
+  <text class="t" x="856" y="86">navigation · voice NLU</text>
+  <text class="t t-m" x="856" y="100">payments · owner app</text>
+
+  <line class="ln" x1="592" y1="122" x2="592" y2="162" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <text class="t t-m" x="604" y="146">async · signed · 50–150 ms RTT</text>
+
+  <!-- Tier 2 -->
+  <rect class="band-farm" x="20" y="164" width="1060" height="104" rx="4"/>
+  <text class="t-title" x="130" y="184">TIER 2 · EDGE ECU FARM</text>
+  <text class="t t-m" x="310" y="184">5G MEC at the cell site · advisory only · silence is a normal operating mode</text>
+  <text class="t-rail" x="70" y="222" text-anchor="middle">ASSIST</text>
+
+  <rect class="box-farm" x="130" y="196" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="142" y="218">HD map · route energy</text>
+  <text class="t" x="142" y="234">tiles ahead of the vehicle</text>
+  <text class="t t-m" x="142" y="248">energy plan for the next 10 km</text>
+
+  <rect class="box-farm" x="368" y="196" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="380" y="218">Cooperative perception</text>
+  <text class="t" x="380" y="234">V2X objects from other vehicles</text>
+  <text class="t t-m" x="380" y="248">hints, never commands</text>
+
+  <rect class="box-farm" x="606" y="196" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="618" y="218">Per-vehicle twin actor</text>
+  <text class="t" x="618" y="234">receives compressed features</text>
+  <text class="t t-m" x="618" y="248">one radio hop from the vehicle</text>
+
+  <rect class="box-farm" x="844" y="196" width="210" height="58" rx="3"/>
+  <text class="t t-b" x="856" y="218">Orchestrator · PROPOSER</text>
+  <text class="t" x="856" y="234">signed placement plan</text>
+  <text class="t t-m" x="856" y="248">vehicle arbiter decides</text>
+
+  <line class="ln" x1="592" y1="270" x2="592" y2="328" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <text class="t" x="604" y="294">5G SA URLLC · ≤ 10 ms target · plan for 20–50 ms</text>
+  <text class="t t-m" x="604" y="310">hints + telemetry · QM only · no safety goal depends on it</text>
+
+  <!-- Vehicle -->
+  <rect class="band-vehicle" x="20" y="330" width="1060" height="380" rx="4"/>
+  <text class="t-title" x="130" y="350">VEHICLE</text>
+  <text class="t t-m" x="200" y="350">Tier 1 on-board compute · Tier 0 smart nodes · Sense-Think-Decide-Act closes on board · ≤ 45 ECUs</text>
+
+  <rect class="box-qm" x="130" y="362" width="924" height="38" rx="3"/>
+  <text class="t t-b" x="142" y="385">Connectivity Gateway / TCU</text>
+  <text class="t t-m" x="330" y="385">5G SA (URLLC + eMBB) · Wi-Fi 6 · C-V2X PC5 · UWB anchors · SOME/IP ↔ MQTT/gRPC bridge · IDS sensor · QM</text>
+
+  <line class="ln" x1="592" y1="402" x2="592" y2="422" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <text class="t t-m" x="604" y="416">1000BASE-T1 · MACsec</text>
+
+  <rect class="box-ccu" x="130" y="424" width="924" height="96" rx="3"/>
+  <text class="t t-b" x="142" y="442">CENTRAL COMPUTE UNIT</text>
+  <text class="t t-m" x="310" y="442">hypervisor · mixed criticality · replaces the ADAS, cluster, head-unit and gateway domain controllers</text>
+  <text class="t-rail" x="70" y="478" text-anchor="middle">THINK</text>
+  <text class="t-rail" x="70" y="492" text-anchor="middle">DECIDE</text>
+
+  <rect class="part-asil" x="142" y="452" width="290" height="58" rx="2"/>
+  <text class="t t-b" x="152" y="470">Safety island · ASIL D</text>
+  <text class="t" x="152" y="486">DECIDE · brake / steer arbitration · motion control</text>
+  <text class="t t-m" x="152" y="500">workload ARBITER · degraded-mode manager</text>
+
+  <rect class="part-qmb" x="447" y="452" width="290" height="58" rx="2"/>
+  <text class="t t-b" x="457" y="470">High-performance compute · ASIL B(D)</text>
+  <text class="t" x="457" y="486">THINK · perception · fusion · localisation</text>
+  <text class="t t-m" x="457" y="500">driver monitoring · NPU</text>
+
+  <rect class="part-qm" x="752" y="452" width="290" height="58" rx="2"/>
+  <text class="t t-b" x="762" y="470">IVI + container runtime · QM</text>
+  <text class="t" x="762" y="486">HMI · media · Android / Linux · Qt</text>
+  <text class="t t-m" x="762" y="500">placeable workloads · edge agent</text>
+
+  <line class="ln" x1="235" y1="522" x2="235" y2="546" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <line class="ln" x1="473" y1="522" x2="473" y2="546" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <line class="ln" x1="711" y1="522" x2="711" y2="546" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <line class="ln" x1="949" y1="522" x2="949" y2="546" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+  <text class="t" x="592" y="538" text-anchor="middle">TSN Ethernet · ≤ 5 ms E2E</text>
+
+  <text class="t-rail" x="70" y="574" text-anchor="middle">ACT</text>
+  <rect class="box-qmb" x="130" y="548" width="210" height="44" rx="3"/>
+  <text class="t t-b" x="142" y="566">Zone FL</text>
+  <text class="t t-m t-s" x="142" y="582">48 V e-fuses · TSN · CAN FD · radio</text>
+  <rect class="box-qmb" x="368" y="548" width="210" height="44" rx="3"/>
+  <text class="t t-b" x="380" y="566">Zone FR</text>
+  <text class="t t-m t-s" x="380" y="582">48 V e-fuses · TSN · CAN FD · radio</text>
+  <rect class="box-qmb" x="606" y="548" width="210" height="44" rx="3"/>
+  <text class="t t-b" x="618" y="566">Zone RL</text>
+  <text class="t t-m t-s" x="618" y="582">48 V e-fuses · TSN · CAN FD · radio</text>
+  <rect class="box-qmb" x="844" y="548" width="210" height="44" rx="3"/>
+  <text class="t t-b" x="856" y="566">Zone RR</text>
+  <text class="t t-m t-s" x="856" y="582">48 V e-fuses · TSN · CAN FD · radio</text>
+
+  <line class="ln-thin" x1="235" y1="592" x2="235" y2="608"/>
+  <line class="ln-thin" x1="473" y1="592" x2="473" y2="608"/>
+  <line class="ln-thin" x1="711" y1="592" x2="711" y2="608"/>
+  <line class="ln-thin" x1="949" y1="592" x2="949" y2="608"/>
+  <line class="ln-thin" x1="235" y1="608" x2="949" y2="608"/>
+  <line class="ln" x1="350" y1="608" x2="350" y2="630" marker-end="url(#ah2)"/>
+  <text class="t t-m t-s" x="362" y="624">CAN FD · 10BASE-T1S · wired</text>
+  <line class="ln-w" x1="834" y1="608" x2="834" y2="630" marker-end="url(#ah2w)"/>
+  <text class="t t-m t-s" x="846" y="624">UWB · BLE · Wi-Fi 6 · wireless</text>
+
+  <text class="t-rail" x="70" y="668" text-anchor="middle">SENSE</text>
+  <rect class="box-asil" x="130" y="632" width="440" height="64" rx="3"/>
+  <text class="t t-b" x="142" y="652">Tier 0 · wired safety-critical nodes · ASIL A–D</text>
+  <text class="t" x="142" y="668">brake · steering · airbag satellites · radar · camera · BMS · lighting · doors</text>
+  <text class="t t-m t-s" x="142" y="684">CAN FD + SecOC · 10BASE-T1S · LIN · time-stamped at source</text>
+
+  <rect class="box-wireless" x="614" y="632" width="440" height="64" rx="3"/>
+  <text class="t t-b" x="626" y="652">Tier 0 · wireless non-safety nodes · QM</text>
+  <text class="t" x="626" y="668">seats · cabin sensors · ambient light · rear displays · key · left-item detection</text>
+  <text class="t t-m t-s" x="626" y="684">UWB · BLE 5 · Wi-Fi 6 · per-node certificates · signal harness removed</text>
+
+  <!-- Legend -->
+  <rect class="part-asil" x="130" y="730" width="14" height="14"/>
+  <text class="t t-s" x="150" y="741">ASIL · on-board · wired only</text>
+  <rect class="box-qmb" x="316" y="730" width="14" height="14"/>
+  <text class="t t-s" x="336" y="741">QM · on-board</text>
+  <rect class="box-farm" x="440" y="730" width="14" height="14"/>
+  <text class="t t-s" x="460" y="741">farm-hosted · advisory or async</text>
+  <line class="ln-w" x1="646" y1="737" x2="676" y2="737"/>
+  <text class="t t-s" x="684" y="741">wireless link · QM traffic only</text>
+  <line class="ln" x1="866" y1="737" x2="896" y2="737" marker-end="url(#ah2)"/>
+  <text class="t t-s" x="904" y="741">link · labelled with latency budget</text>
+</svg>
