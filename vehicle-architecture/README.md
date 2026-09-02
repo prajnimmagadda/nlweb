@@ -67,7 +67,7 @@ flowchart TB
 
 > **Sense-Think-Decide-Act stays whole on the vehicle for anything that can hurt someone. Everything else is a candidate to leave the vehicle. The farm Learns, Updates and Allocates.**
 
-The business plan describes ECU farms that let vehicles "access critical functions over the Internet". This architecture keeps that idea but draws the line where ISO 26262 draws it: any function with a safety goal at ASIL B or above runs on-board, closed-loop, with no dependency on the wireless link. The link is treated as a **QM resource** that can vanish at any time. The ECU reduction still comes from three places:
+The business plan places **non-safety-critical** functions in the ECU farm and keeps safety-critical sensors and actuators on the vehicle (its architecture figure marks the two in red and blue). This architecture formalises that same line where ISO 26262 draws it: any function with a safety goal at ASIL B or above runs on-board, closed-loop, with no dependency on the wireless link; everything at QM is a candidate for the farm. The link is treated as a **QM resource** that can vanish at any time. The ECU reduction comes from three places:
 
 1. **Consolidation**: ~100 domain ECUs collapse into one central compute unit, four zonal controllers and a short list of dedicated safety ECUs.
 2. **Offload**: every non-real-time, non-safety workload (navigation, voice, telematics apps, diagnostics analytics, HD maps, fleet learning, entitlements, OTA orchestration) moves to the ECU farm, where one server-class node serves many vehicles.
