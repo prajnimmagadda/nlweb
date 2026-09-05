@@ -18,6 +18,7 @@ Re-architecture of the conventional ADAS ECU stack for the **Fully Connected Car
 | 04 | [Connectivity, middleware and security](04-connectivity-middleware-security.md) | Wired backbone, in-vehicle wireless, vehicle-to-farm links, software stack per tier, ISO/SAE 21434 controls |
 | 05 | [Workload orchestrator](05-workload-orchestrator.md) | The AI-driven ECU allocation engine |
 | 06 | [Roadmap and validation](06-roadmap-and-validation.md) | How to get from ~100 ECUs to 45 and beyond, and how to prove it |
+| 07 | [On-board vs cloud](07-onboard-vs-cloud.md) | Every feature, which side it lives on, one line why |
 | — | [diagrams/](diagrams/) | Standalone SVGs: [baseline pipeline](diagrams/01-baseline-adas-ecu.svg) and [ChromeCar target architecture](diagrams/02-chromecar-target-architecture.svg) |
 
 ## The architecture in one picture
