@@ -11,7 +11,7 @@ summary: >
 triggers: [manual, "schedule:weekly"]
 inputs: [work_item, risk, issue, decision, change_request, action_item, previous status_report]
 outputs: [status_report]
-tools: [sync_github, project_health, flow_metrics, forecast_release, list_artifacts, get_artifact, check_scope_coverage, draft_status_report, draft_status_email]
+tools: [sync_github, project_health, baseline_variance, flow_metrics, forecast_release, list_artifacts, get_artifact, check_scope_coverage, draft_status_report, draft_status_email]
 host_capabilities: [gmail_create_draft]
 autonomy: L1
 principles: [accountable_leader, holistic_view, focus_on_value]
@@ -25,7 +25,8 @@ instructions: |
   1. Call sync_github, then project_health. Keep its overall status and dimensions exactly as they are.
   2. Gather what changed this period: items completed (list_artifacts kind="work_item" status="done",
      closed in the period), new or changed risks, open issues, pending decisions and change requests,
-     and overdue action items. Run check_scope_coverage to spot scope creep.
+     and overdue action items. Run check_scope_coverage and baseline_variance to spot scope creep; if
+     scope growth is amber or red, recommend running assess_and_implement_changes.
   3. Compare with the previous status report (list_artifacts kind="status_report") and note what got
      better or worse.
   4. Write the narrative: summary, accomplishments, next steps and decisions needed. For each amber or

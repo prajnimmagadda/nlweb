@@ -11,9 +11,9 @@ summary: >
 triggers: [manual, "event:charter_approved"]
 inputs: [charter, work_item, requirements docs]
 outputs: [scope_structure]
-tools: [get_artifact, list_artifacts, sync_github, artifact_schema, save_artifact, check_scope_coverage]
+tools: [get_artifact, list_artifacts, sync_github, artifact_schema, save_artifact, check_scope_coverage, propose_github_issues]
 host_capabilities: [google_drive_read]
-autonomy: L1
+autonomy: L2
 principles: [focus_on_value, embed_quality, holistic_view]
 quality_checks:
   - "The 100% rule holds: every objective is covered by at least one epic, and every element serves an objective (check_scope_coverage returns empty lists)."
@@ -32,5 +32,7 @@ instructions: |
   5. Run check_scope_coverage and fix any gaps: objectives with no scope, elements with no objective,
      or open issues missing from the map. For each missing issue, ask the user whether it belongs;
      if it adds scope, suggest a change request.
-  6. List the new stories that still need GitHub issues. Creating issues is an L2 action that isn't
-     available yet, so hand the list to the user.
+  6. For the new stories that still need GitHub issues, call propose_github_issues once per repo with
+     a title, a body holding the acceptance criteria, and the release milestone. It files one request
+     that waits for the user's approval in the inbox; nothing is created on GitHub until they approve.
+     After approval and the next sync_github, set each element's work_item_id to its new issue.

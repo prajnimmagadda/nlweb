@@ -60,6 +60,28 @@ class GitHubClient:
                     yield issue
             url, params = response.links.get("next", {}).get("url"), None
 
+    def _check(self, response: httpx.Response, what: str) -> Any:
+        if response.status_code >= 400:
+            try:
+                message = response.json().get("message", response.text)
+            except ValueError:
+                message = response.text
+            raise GitHubError(f"GitHub returned {response.status_code} when trying to {what}: {message}")
+        return response.json()
+
+    def milestones(self, repo: str) -> dict[str, int]:
+        """Milestone title -> number, open and closed."""
+        data = self._check(self._client.get(f"/repos/{repo}/milestones", params={"state": "all", "per_page": 100}),
+                           f"list milestones in {repo}")
+        return {m["title"]: m["number"] for m in data}
+
+    def create_issue(self, repo: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._check(self._client.post(f"/repos/{repo}/issues", json=body), f"create an issue in {repo}")
+
+    def update_issue(self, repo: str, number: int, body: dict[str, Any]) -> dict[str, Any]:
+        return self._check(self._client.patch(f"/repos/{repo}/issues/{number}", json=body),
+                           f"update {repo}#{number}")
+
     def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         response = self._client.post("/graphql", json={"query": query, "variables": variables})
         if response.status_code >= 400:

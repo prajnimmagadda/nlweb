@@ -1,6 +1,14 @@
 """Artifact schemas and the kind -> class registry."""
 
-from pm_agent.schemas.change import ChangeImpact, ChangeRequest
+from pm_agent.schemas.action import PAYLOAD_TYPES, ActionRequest, CreateIssuesPayload, IssueDraft, SetMilestonePayload
+from pm_agent.schemas.change import (
+    Baseline,
+    ChangeImpact,
+    ChangeProposal,
+    ChangeRequest,
+    ImpactAnalysis,
+    ImpactSnapshot,
+)
 from pm_agent.schemas.common import Artifact, Link, Rag
 from pm_agent.schemas.communication import ActionItem, DimensionStatus, LessonLearned, StatusReport
 from pm_agent.schemas.project import (
@@ -31,6 +39,8 @@ ARTIFACT_TYPES: dict[str, type[Artifact]] = {
         Assumption,
         Decision,
         ChangeRequest,
+        Baseline,
+        ActionRequest,
         StatusReport,
         ActionItem,
         LessonLearned,
@@ -47,7 +57,16 @@ def artifact_type(kind: str) -> type[Artifact]:
 
 __all__ = [
     "ARTIFACT_TYPES",
+    "PAYLOAD_TYPES",
     "ActionItem",
+    "ActionRequest",
+    "Baseline",
+    "ChangeProposal",
+    "CreateIssuesPayload",
+    "ImpactAnalysis",
+    "ImpactSnapshot",
+    "IssueDraft",
+    "SetMilestonePayload",
     "Artifact",
     "Assumption",
     "ChangeImpact",

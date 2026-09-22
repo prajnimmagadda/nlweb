@@ -12,9 +12,12 @@ import re
 from enum import IntEnum
 from typing import Callable
 
-from pm_agent.schemas import Artifact, ChangeRequest, Charter, Decision, ProjectProfile, Risk
+from pm_agent.schemas import ActionRequest, Artifact, Baseline, ChangeRequest, Charter, Decision, ProjectProfile, Risk
 
 _ACTOR_RE = re.compile(r"^(human|agent|system):[\w .@+-]+$")
+
+IMPACT_ACTOR = "system:impact-analysis"
+EXECUTOR_ACTOR = "system:executor"
 
 
 class AutonomyLevel(IntEnum):
@@ -123,6 +126,38 @@ def _change_request_status(new: ChangeRequest, previous: ChangeRequest | None, a
     return None
 
 
+def _analysis_from_engine(new: ChangeRequest, previous: ChangeRequest | None, actor: str) -> str | None:
+    before = previous.analysis if previous else None
+    if new.analysis != before and actor != IMPACT_ACTOR:
+        return "impact analysis is computed by PM Copilot; request it with assess_change_request"
+    return None
+
+
+def _baseline_status(new: Baseline, previous: Baseline | None, actor: str) -> str | None:
+    before = (previous.status, previous.approved_by, previous.approved_at) if previous else ("proposed", None, None)
+    if (new.status, new.approved_by, new.approved_at) != before:
+        return "only a human may approve, reject or supersede a baseline"
+    return None
+
+
+def _action_request(new: ActionRequest, previous: ActionRequest | None, actor: str) -> str | None:
+    outcome = (new.status, new.result, new.executed_at)
+    decision = (new.decided_by, new.decision_note, new.decided_at)
+    if previous is None:
+        if outcome != ("pending", None, None) or decision != (None, None, None):
+            return "agents may only file action requests as 'pending'"
+        return None
+    if decision != (previous.decided_by, previous.decision_note, previous.decided_at):
+        return "only a human may approve or reject an action request"
+    if new.payload != previous.payload and previous.status != "pending":
+        return "an action request can't change after it has been decided"
+    if outcome != (previous.status, previous.result, previous.executed_at):
+        executing = actor == EXECUTOR_ACTOR and previous.status == "approved" and new.status in ("executed", "failed")
+        if not executing:
+            return "only the executor may record the outcome of an approved action request"
+    return None
+
+
 _RULES: dict[str, list[Rule]] = {
     "work_item": [_system_only],
     "status_report": [_system_only],
@@ -130,7 +165,9 @@ _RULES: dict[str, list[Rule]] = {
     "charter": [_charter_approval_unchanged],
     "risk": [_risk_status],
     "decision": [_decision_status],
-    "change_request": [_change_request_status],
+    "change_request": [_change_request_status, _analysis_from_engine],
+    "baseline": [_baseline_status],
+    "action_request": [_action_request],
 }
 
 

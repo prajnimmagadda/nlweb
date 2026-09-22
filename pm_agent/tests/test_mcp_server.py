@@ -58,3 +58,20 @@ def test_refusals_reach_the_model_with_their_reason(server, project):
                                                "rationale": "x"}))
     with pytest.raises(ToolError, match="no project"):
         run(server.call_tool("project_health", {"project_id": "missing"}))
+
+
+def test_change_control_tools_file_requests_as_the_agent(server, copilot, project):
+    tools = {t.name for t in run(server.list_tools())}
+    assert {"propose_baseline", "baseline_variance", "assess_change_request", "propose_github_issues",
+            "propose_milestone_move", "list_inbox"} <= tools
+    result = run(server.call_tool("propose_github_issues", {
+        "project_id": project, "repo": "o/r", "issues": [{"title": "New story", "milestone": "v1"}],
+        "rationale": "gap in the story map"}))
+    assert json.loads(_text(result))["status"] == "pending"
+    stored = copilot.store.get(project, "action_request", "AR-1")
+    assert (stored.actor, stored.artifact.title) == ("agent:copilot", "Create 1 issue in o/r")
+    inbox = json.loads(_text(run(server.call_tool("list_inbox", {"project_id": project}))))
+    assert [i["id"] for i in inbox["items"]] == ["AR-1"]
+    with pytest.raises(ToolError, match="isn't one of this project's repos"):
+        run(server.call_tool("propose_milestone_move", {"project_id": project, "repo": "x/y", "issue_numbers": [1],
+                                                        "milestone": "v2", "rationale": "r"}))

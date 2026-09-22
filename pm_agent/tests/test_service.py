@@ -146,10 +146,13 @@ def test_scope_coverage(copilot, project):
 def test_demo_project_exercises_every_engine(copilot):
     from pm_agent.demo import seed_demo
 
-    assert seed_demo(copilot, actor=HUMAN)["work_items"] == 73
+    assert seed_demo(copilot, actor=HUMAN)["work_items"] == 81
     health = copilot.health("demo", seed=1)
     assert health["unknown_dimensions"] == []
-    assert health["metrics"]["remaining_items"] == 24
+    assert health["metrics"]["remaining_items"] == 32
+    assert {d["name"]: d["rag"] for d in health["dimensions"]}["scope"] == "amber"
+    assert {(i["kind"], i["id"]) for i in copilot.inbox("demo")} == {
+        ("change_request", "CR-1"), ("action_request", "AR-1"), ("decision", "D-1"), ("risk", "R-2")}
     assert copilot.flow("demo").cycle_time_samples > 30
     statuses = {r["id"]: r["status"] for r in copilot.list_artifacts("demo", "risk")}
     assert statuses == {"R-1": "open", "R-2": "proposed"}

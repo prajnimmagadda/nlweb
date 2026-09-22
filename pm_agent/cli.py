@@ -2,8 +2,9 @@
 
 Everything run here acts as 'human:<you>': PM_COPILOT_USER if set, otherwise your
 git user.name, otherwise your login name. That is what lets you approve charters,
-decisions and change requests, promote risks, and set RAG thresholds, schedules,
-report recipients and the calendar filter, which the agent cannot do.
+decisions, change requests, baselines and GitHub actions, promote risks, and set RAG
+thresholds, schedules, report recipients and the calendar filter, which the agent
+cannot do. `ui` opens the same controls in your browser.
 
 Commands that call Claude (run, run-due, eval) import the Anthropic SDK lazily.
 """
@@ -116,17 +117,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("project")
     p.add_argument("--limit", type=int, default=30)
 
-    p = sub.add_parser("approve", help="approve a charter, decision or change request, or promote a risk")
+    p = sub.add_parser("inbox", help="everything waiting for your decision, newest first")
     p.add_argument("project")
-    p.add_argument("kind", choices=["charter", "risk", "decision", "change_request"])
+
+    p = sub.add_parser("approve", help="approve a charter, decision, change request, baseline or action request, "
+                                       "or promote a risk")
+    p.add_argument("project")
+    p.add_argument("kind", choices=["charter", "risk", "decision", "change_request", "baseline", "action_request"])
     p.add_argument("id")
     p.add_argument("--note")
+    p.add_argument("--version", type=int, help="refuse if the artifact is no longer at this version")
 
-    p = sub.add_parser("reject", help="reject a risk, decision or change request")
+    p = sub.add_parser("reject", help="reject a risk, decision, change request, baseline or action request")
     p.add_argument("project")
-    p.add_argument("kind", choices=["risk", "decision", "change_request"])
+    p.add_argument("kind", choices=["risk", "decision", "change_request", "baseline", "action_request"])
     p.add_argument("id")
     p.add_argument("--reason", required=True)
+    p.add_argument("--version", type=int, help="refuse if the artifact is no longer at this version")
+
+    p = sub.add_parser("baseline", help="show variance against the approved baseline, or propose a new one")
+    p.add_argument("project")
+    p.add_argument("--propose", metavar="NAME", help="snapshot the current release as a proposed baseline")
+    p.add_argument("--reason", default="set from the command line")
+
+    p = sub.add_parser("assess", help="compute a change request's before/after impact")
+    p.add_argument("project")
+    p.add_argument("id", help="change request id, e.g. CR-1")
 
     p = sub.add_parser("thresholds", help="change RAG thresholds, e.g. spi_green=0.9 blocked_red=4")
     p.add_argument("project")
@@ -218,10 +234,20 @@ def run(args: argparse.Namespace, copilot: Copilot) -> Any:
         return copilot.history(args.project, args.kind, args.id)
     if cmd == "audit":
         return copilot.store.audit(args.project, args.limit)
+    if cmd == "inbox":
+        return copilot.inbox(args.project)
     if cmd == "approve":
-        return copilot.approve(args.project, args.kind, args.id, actor=user, note=args.note)
+        return copilot.approve(args.project, args.kind, args.id, actor=user, note=args.note,
+                               expected_version=args.version)
     if cmd == "reject":
-        return copilot.reject(args.project, args.kind, args.id, actor=user, reason=args.reason)
+        return copilot.reject(args.project, args.kind, args.id, actor=user, reason=args.reason,
+                              expected_version=args.version)
+    if cmd == "baseline":
+        if args.propose:
+            return copilot.propose_baseline(args.project, actor=user, name=args.propose, reason=args.reason)
+        return copilot.baseline_variance(args.project)
+    if cmd == "assess":
+        return copilot.assess_change_request(args.project, args.id, requested_by=user)
     if cmd == "thresholds":
         changes = {}
         for item in args.changes:

@@ -22,6 +22,7 @@ DEFAULT_PLAYBOOKS = [
     "pmbok8.risk.identify_and_analyze_risks",
     "pmbok8.governance.monitor_and_control_performance",
     "pmbok8.stakeholders.manage_communications",
+    "pmbok8.governance.assess_and_implement_changes",
 ]
 
 
@@ -40,13 +41,16 @@ class RagThresholds(Model):
     blocked_red: int = 3
     risk_score_amber: int = Field(10, description="An open risk with probability x impact at or above this is amber.")
     risk_score_red: int = 15
+    scope_growth_amber: float = Field(
+        0.10, description="Net growth of the release scope since the baseline (0.10 = 10%).")
+    scope_growth_red: float = 0.20
 
     @model_validator(mode="after")
     def _ordered(self) -> "RagThresholds":
         if self.spi_amber > self.spi_green:
             raise ValueError("spi_amber must not exceed spi_green")
         for low, high in [("aging_wip_amber", "aging_wip_red"), ("blocked_amber", "blocked_red"),
-                          ("risk_score_amber", "risk_score_red")]:
+                          ("risk_score_amber", "risk_score_red"), ("scope_growth_amber", "scope_growth_red")]:
             if getattr(self, low) > getattr(self, high):
                 raise ValueError(f"{low} must not exceed {high}")
         return self

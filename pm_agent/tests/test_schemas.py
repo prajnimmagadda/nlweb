@@ -9,7 +9,8 @@ from .conftest import NOW
 def test_every_kind_is_registered_once():
     assert set(ARTIFACT_TYPES) == {
         "project_profile", "charter", "scope_structure", "stakeholder", "work_item", "risk", "issue",
-        "assumption", "decision", "change_request", "status_report", "action_item", "lesson",
+        "assumption", "decision", "change_request", "baseline", "action_request", "status_report", "action_item",
+        "lesson",
     }
 
 

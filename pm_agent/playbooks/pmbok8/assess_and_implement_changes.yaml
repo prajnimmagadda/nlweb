@@ -1,0 +1,43 @@
+id: pmbok8.governance.assess_and_implement_changes
+name: Assess a change
+standard: PMBOK8
+processes: [Assess and Implement Changes, Monitor and Control Scope]
+domain: governance
+focus_areas: [monitoring_controlling]
+agent: project
+summary: >
+  Turn a detected problem or a new request into a change request with a computed before/after impact
+  analysis, options and a recommendation, and submit it for your decision. Once approved, the target
+  date and baseline are updated and any GitHub milestone moves wait in your inbox.
+triggers: [manual, "event:scope_growth", "event:schedule_red"]
+inputs: [baseline, work_item, charter, scope_structure, risk, change_request]
+outputs: [change_request (submitted), baseline (proposed)]
+tools: [sync_github, project_health, baseline_variance, forecast_release, check_scope_coverage, list_artifacts, get_artifact, artifact_schema, save_artifact, update_artifact, assess_change_request, propose_baseline, list_inbox]
+host_capabilities: []
+autonomy: L2
+principles: [holistic_view, focus_on_value, accountable_leader]
+quality_checks:
+  - The change request has a machine-readable proposal, and its impact analysis was computed after the last edit to that proposal.
+  - Every number quoted (remaining items, forecast dates, done by target) comes from the analysis, word for word.
+  - At least two options are offered, including doing nothing, each with its trade-off in one sentence.
+  - The recommendation names the objectives and risks the change touches, from the analysis.
+  - Nothing is approved or moved on GitHub; the request ends as 'submitted' for the human.
+instructions: |
+  1. Call sync_github, then baseline_variance and project_health. If there is no approved baseline, say
+     so and offer to call propose_baseline first (the human approves it in the inbox), because scope
+     growth can't be measured without one.
+  2. Work out what triggered this run: the user's material, scope growth since the baseline, a red
+     schedule, or open issues outside the story map (check_scope_coverage). State the problem in one
+     or two sentences with the evidence (issue ids, dates, variance numbers).
+  3. Draft the change with save_artifact(kind="change_request", status="draft"). Fill in title,
+     description, reason, the cross-domain impact in words (scope, schedule, cost, risk, stakeholders,
+     benefits), options and a recommendation. Add a proposal the engine can compute: the items to move
+     out (move_out_item_ids, e.g. "owner/repo#12") and where they go (move_to_milestone), how many new
+     items it adds (add_items, add_points), and/or a new_target_date. Call artifact_schema if unsure.
+  4. Call assess_change_request. Read the before/after snapshots and notes. If the result doesn't
+     solve the problem (for example the P85 forecast still misses the target), revise the proposal with
+     update_artifact and assess again. Quote the numbers exactly as returned.
+  5. Update the impact text so it matches the analysis, then set status="submitted" with
+     update_artifact. Tell the user it is waiting in their inbox, and summarize: the problem, the
+     recommended option, before/after P85 and done-by-target, and what approval will do (new target
+     date, new baseline, milestone moves that need a second approval before anything changes on GitHub).

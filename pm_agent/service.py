@@ -12,17 +12,24 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+import httpx
+
+from pm_agent import actions
 from pm_agent.engines import evm as evm_engine
-from pm_agent.engines import rag, risk
+from pm_agent.engines import impact, rag, risk
 from pm_agent.engines.flow import FlowMetrics, compute_flow
 from pm_agent.engines.forecast import ForecastError, forecast_how_many, forecast_when
 from pm_agent.governance import GovernanceError, is_human, is_system, validate_actor
-from pm_agent.integrations.github import GitHubClient, sync_project
+from pm_agent.governance.rules import EXECUTOR_ACTOR, IMPACT_ACTOR
+from pm_agent.integrations.github import GitHubClient, GitHubError, sync_project
 from pm_agent.integrations.google import GOOGLE_DOC, GoogleClient, GoogleError
 from pm_agent.playbooks import resolve_playbook
 from pm_agent.reports import render_html, render_text, subject
 from pm_agent.schemas import (
+    ActionRequest,
     Artifact,
+    Baseline,
+    ChangeRequest,
     Charter,
     ProjectProfile,
     RagThresholds,
@@ -36,6 +43,7 @@ from pm_agent.schemas import (
 from pm_agent.store import Store
 
 REPORTING_ACTOR = "system:reporting"
+CHANGE_CONTROL_ACTOR = "system:change-control"
 OPEN_STATES = ("todo", "in_progress", "blocked")
 
 # Artifacts that have exactly one instance per project use a fixed id.
@@ -50,6 +58,17 @@ _MAX_NOTES = 20000
 _SYSTEM_KINDS = {
     "status_report": "status reports are created with draft_status_report, which attaches the computed RAG",
     "work_item": "work items mirror GitHub and are written by sync_github",
+    "baseline": "baselines are computed from the tracker; ask for one with propose_baseline",
+    "action_request": "action requests are filed with propose_github_issues or propose_milestone_move",
+}
+
+# What each kind needs from you, for the inbox.
+_INBOX_STATES = {
+    "action_request": ("pending", "Approve an action"),
+    "change_request": ("submitted", "Decide on a change"),
+    "baseline": ("proposed", "Approve a baseline"),
+    "risk": ("proposed", "Promote a risk"),
+    "decision": ("proposed", "Accept a decision"),
 }
 
 
@@ -258,8 +277,12 @@ class Copilot:
             except ForecastError:
                 pass
         evm_result = self.agile_evm(project_id)
+        baseline = self.current_baseline(project_id)
+        variance = (impact.baseline_variance(baseline, scope, profile.target_date,
+                                             when.percentiles[85] if when else None) if baseline else None)
         dimensions = [
             rag.schedule_status(when, profile.target_date),
+            impact.scope_status(variance, profile.thresholds),
             rag.spi_status(evm_result.get("spi"), profile.thresholds),
             *rag.flow_statuses(metrics, profile.thresholds),
             rag.risk_status(self._risks(project_id), profile.thresholds),
@@ -277,6 +300,7 @@ class Copilot:
                 "spi": evm_result.get("spi"),
                 "forecast_p50": when.percentiles[50].isoformat() if when else None,
                 "forecast_p85": when.percentiles[85].isoformat() if when else None,
+                "scope_growth": variance.growth if variance else None,
             },
         }
 
@@ -357,12 +381,143 @@ class Copilot:
     def history(self, project_id: str, kind: str, artifact_id: str) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self.store.history(project_id, kind, artifact_id)]
 
+    # ----- change control and baselines ----------------------------------
+
+    def current_baseline(self, project_id: str) -> Baseline | None:
+        approved = [s.artifact for s in self.store.list_latest(project_id, "baseline")
+                    if s.artifact.status == "approved"]
+        return max(approved, key=lambda b: int(b.id.split("-")[1])) if approved else None
+
+    def _release_snapshot(self, project_id: str, scope: list[WorkItem], target: date | None, *,
+                          extra_items: int = 0, extra_points: float | None = None):
+        return impact.snapshot(scope, self.flow(project_id).daily_throughput, self._clock().date(), target,
+                               extra_items=extra_items, extra_points=extra_points)
+
+    def propose_baseline(self, project_id: str, *, actor: str, name: str, reason: str,
+                         budget: float | None = None) -> dict[str, Any]:
+        """Snapshot the release scope, target and forecast as a baseline for a human to approve."""
+        validate_actor(actor)
+        profile = self.profile(project_id)
+        scope, scope_name = self._scope(project_id, None)
+        if not scope:
+            raise ValueError(f"no work items in scope ({scope_name}); run sync_github first")
+        snap = self._release_snapshot(project_id, scope, profile.target_date)
+        baseline = Baseline(
+            id=self.store.new_id(project_id, "baseline"), project_id=project_id, name=name, reason=reason,
+            scope_item_ids=sorted(i.id for i in scope), scope_points=snap.scope_points,
+            target_date=profile.target_date, forecast_p50=snap.forecast_p50, forecast_p85=snap.forecast_p85,
+            budget=budget,
+        )
+        result = self.store.put(baseline, actor=actor, rationale=reason)
+        return {"id": baseline.id, "version": result.version, "baseline": baseline.model_dump(mode="json"),
+                "note": "Proposed. A human approves it before variance is measured against it."}
+
+    def baseline_variance(self, project_id: str) -> dict[str, Any]:
+        """How the release has moved since the approved baseline."""
+        baseline = self.current_baseline(project_id)
+        if baseline is None:
+            return {"baseline": None, "status": impact.scope_status(None, self.profile(project_id).thresholds)
+                    .model_dump()}
+        profile = self.profile(project_id)
+        scope, _ = self._scope(project_id, None)
+        snap = self._release_snapshot(project_id, scope, profile.target_date)
+        variance = impact.baseline_variance(baseline, scope, profile.target_date, snap.forecast_p85)
+        return {"baseline": baseline.model_dump(mode="json"), "variance": asdict(variance),
+                "current": snap.model_dump(mode="json"),
+                "status": impact.scope_status(variance, profile.thresholds).model_dump()}
+
+    def _objectives_by_work_item(self, project_id: str) -> dict[str, list[str]]:
+        stored = self.store.get(project_id, "scope_structure", "scope")
+        if stored is None:
+            return {}
+        by_id = {e.id: e for e in stored.artifact.elements}
+
+        def effective(element_id: str) -> list[str]:
+            element = by_id[element_id]
+            if element.objective_ids or element.parent is None:
+                return list(element.objective_ids)
+            return effective(element.parent)
+
+        return {e.work_item_id: effective(e.id) for e in by_id.values() if e.work_item_id}
+
+    def _risks_by_work_item(self, project_id: str) -> dict[str, list[str]]:
+        mapping: dict[str, list[str]] = {}
+        for r in self._risks(project_id):
+            if r.status in ("rejected", "closed"):
+                continue
+            for link in r.links:
+                if link.rel == "work_item":
+                    mapping.setdefault(link.target, []).append(r.id)
+        return mapping
+
+    def assess_change_request(self, project_id: str, change_request_id: str, *,
+                              requested_by: str) -> dict[str, Any]:
+        """Compute the before/after impact of a change request's proposal and attach it to the request."""
+        validate_actor(requested_by)
+        cr: ChangeRequest = self._require(project_id, "change_request", change_request_id)
+        if cr.proposal is None:
+            raise ValueError(f"{cr.id} has no proposal; add one (move_out_item_ids, add_items or new_target_date) "
+                             "with update_artifact first")
+        if cr.status not in ("draft", "submitted"):
+            raise ValueError(f"{cr.id} is already {cr.status}")
+        profile = self.profile(project_id)
+        scope, _ = self._scope(project_id, None)
+        analysis = impact.analyze_change(
+            scope, cr.proposal, profile.target_date, self.flow(project_id).daily_throughput,
+            self._clock().date(), self._clock(),
+            objectives_by_item=self._objectives_by_work_item(project_id),
+            risks_by_item=self._risks_by_work_item(project_id),
+        )
+        result = self.store.put(cr.model_copy(update={"analysis": analysis}), actor=IMPACT_ACTOR,
+                                rationale=f"Requested by {requested_by}")
+        return {"id": cr.id, "version": result.version, "analysis": analysis.model_dump(mode="json")}
+
+    def propose_action(self, project_id: str, action: str, payload: dict[str, Any], *, actor: str, title: str,
+                       rationale: str, sources: list[str] | None = None,
+                       change_request_id: str | None = None) -> dict[str, Any]:
+        """File an external write (e.g. creating GitHub issues) that waits for a human's approval."""
+        validate_actor(actor)
+        profile = self.profile(project_id)
+        request = ActionRequest(
+            id=self.store.new_id(project_id, "action_request"), project_id=project_id, action=action,
+            title=title, payload=payload, rationale=rationale, requested_by=actor,
+            change_request_id=change_request_id,
+        )
+        repo = request.typed_payload().repo
+        if repo not in profile.repos:
+            raise GovernanceError([f"{repo} isn't one of this project's repos ({', '.join(profile.repos) or 'none'})"])
+        if change_request_id is not None:
+            self._require(project_id, "change_request", change_request_id)
+        result = self.store.put(request, actor=actor, rationale=rationale, sources=sources or [])
+        return {"id": request.id, "version": result.version, "status": "pending",
+                "note": "Waiting for a human to approve it in the inbox. Nothing has changed on GitHub yet."}
+
+    def inbox(self, project_id: str) -> list[dict[str, Any]]:
+        """Everything waiting for a human decision, newest first."""
+        items = []
+        for kind, (status, verb) in _INBOX_STATES.items():
+            for stored in self.store.list_latest(project_id, kind):
+                artifact = stored.artifact
+                if artifact.status != status:
+                    continue
+                items.append({"kind": kind, "id": artifact.id, "verb": verb, "title": artifact.title
+                              if hasattr(artifact, "title") else artifact.name,
+                              "requested_by": stored.actor, "created_at": stored.created_at.isoformat(),
+                              "version": stored.version})
+        charter = self.store.get(project_id, "charter", "charter")
+        if charter is not None and charter.artifact.approved_by is None:
+            items.append({"kind": "charter", "id": "charter", "verb": "Approve the charter",
+                          "title": charter.artifact.title, "requested_by": charter.actor,
+                          "created_at": charter.created_at.isoformat(), "version": charter.version})
+        return sorted(items, key=lambda i: i["created_at"], reverse=True)
+
     # ----- human decisions -----------------------------------------------
 
-    def approve(self, project_id: str, kind: str, artifact_id: str, *, actor: str,
-                note: str | None = None) -> dict[str, Any]:
+    def approve(self, project_id: str, kind: str, artifact_id: str, *, actor: str, note: str | None = None,
+                expected_version: int | None = None) -> dict[str, Any]:
+        """Approve as a human. expected_version guards against approving something that changed after you read it."""
         self._require_human(actor, "approve")
-        current = self._require(project_id, kind, artifact_id)
+        current = self._require_current(project_id, kind, artifact_id, expected_version)
         now, name = self._clock(), _human_name(actor)
         changes: dict[str, Any]
         if kind == "charter":
@@ -372,28 +527,156 @@ class Copilot:
         elif kind == "decision":
             changes = {"status": "accepted", "decided_by": name, "decided_at": now}
         elif kind == "change_request":
-            changes = {"status": "approved", "decided_by": name, "decided_at": now, "decision_rationale": note}
+            return self._approve_change(current, actor, note)
+        elif kind == "baseline":
+            return self._approve_baseline(current, actor, note)
+        elif kind == "action_request":
+            return self._approve_action(current, actor, note)
         else:
             raise ValueError(f"{kind} artifacts have no approval step")
         updated = type(current).model_validate({**current.model_dump(), **changes})
         result = self.store.put(updated, actor=actor, rationale=note or "approved")
         return {"id": artifact_id, "version": result.version, "approved": True}
 
-    def reject(self, project_id: str, kind: str, artifact_id: str, *, actor: str, reason: str) -> dict[str, Any]:
+    def reject(self, project_id: str, kind: str, artifact_id: str, *, actor: str, reason: str,
+               expected_version: int | None = None) -> dict[str, Any]:
         self._require_human(actor, "reject")
-        current = self._require(project_id, kind, artifact_id)
+        current = self._require_current(project_id, kind, artifact_id, expected_version)
         now, name = self._clock(), _human_name(actor)
         if kind == "risk":
             changes: dict[str, Any] = {"status": "rejected"}
         elif kind == "decision":
             changes = {"status": "rejected", "decided_by": name, "decided_at": now}
         elif kind == "change_request":
+            self._require_status(current, ("draft", "submitted"))
             changes = {"status": "rejected", "decided_by": name, "decided_at": now, "decision_rationale": reason}
+        elif kind == "baseline":
+            self._require_status(current, ("proposed",))
+            changes = {"status": "rejected"}
+        elif kind == "action_request":
+            self._require_status(current, ("pending",))
+            changes = {"status": "rejected", "decided_by": name, "decided_at": now, "decision_note": reason}
         else:
             raise ValueError(f"{kind} artifacts cannot be rejected")
         updated = type(current).model_validate({**current.model_dump(), **changes})
         result = self.store.put(updated, actor=actor, rationale=reason)
         return {"id": artifact_id, "version": result.version, "rejected": True}
+
+    def _approve_baseline(self, baseline: Baseline, actor: str, note: str | None) -> dict[str, Any]:
+        self._require_status(baseline, ("proposed",))
+        previous = self.current_baseline(baseline.project_id)
+        approved = baseline.model_copy(update={"status": "approved", "approved_by": _human_name(actor),
+                                               "approved_at": self._clock()})
+        result = self.store.put(approved, actor=actor, rationale=note or "approved")
+        if previous is not None:
+            self.store.put(previous.model_copy(update={"status": "superseded"}), actor=actor,
+                           rationale=f"superseded by {baseline.id}")
+        return {"id": baseline.id, "version": result.version, "approved": True,
+                "superseded": previous.id if previous else None}
+
+    def _approve_change(self, cr: ChangeRequest, actor: str, note: str | None) -> dict[str, Any]:
+        """Record the decision, then implement what the proposal says: new target, new baseline, milestone moves."""
+        self._require_status(cr, ("draft", "submitted"))
+        proposal = cr.proposal
+        if proposal is not None:
+            if cr.analysis is None or cr.analysis.proposal_digest != impact.proposal_digest(proposal):
+                raise ValueError(f"{cr.id}'s proposal has changed since its impact analysis (or has none); "
+                                 "run assess_change_request again and review the new numbers")
+        project_id, name, now = cr.project_id, _human_name(actor), self._clock()
+        approved = cr.model_copy(update={"status": "approved", "decided_by": name, "decided_at": now,
+                                         "decision_rationale": note})
+        result = self.store.put(approved, actor=actor, rationale=note or "approved")
+        outcome: dict[str, Any] = {"id": cr.id, "version": result.version, "approved": True}
+        if proposal is None:
+            return outcome
+
+        if proposal.new_target_date is not None:
+            self.setup_project(project_id, actor=actor, target_date=proposal.new_target_date,
+                               rationale=f"{cr.id} approved")
+            outcome["target_date"] = proposal.new_target_date.isoformat()
+
+        profile = self.profile(project_id)
+        scope, _ = self._scope(project_id, None)
+        moved = set(proposal.move_out_item_ids)
+        after = [i for i in scope if i.id not in moved]
+        snap = self._release_snapshot(project_id, after, profile.target_date, extra_items=proposal.add_items,
+                                      extra_points=proposal.add_points)
+        previous = self.current_baseline(project_id)
+        carried = 0  # additions an earlier change approved that haven't reached the tracker yet
+        if previous is not None:
+            arrived = len({i.id for i in scope} - set(previous.scope_item_ids))
+            carried = max(previous.planned_additions - arrived, 0)
+        baseline = Baseline(
+            id=self.store.new_id(project_id, "baseline"), project_id=project_id,
+            name=f"Re-baseline for {cr.id}", reason=cr.title, scope_item_ids=sorted(i.id for i in after),
+            planned_additions=proposal.add_items + carried,
+            scope_points=snap.scope_points, target_date=profile.target_date, forecast_p50=snap.forecast_p50,
+            forecast_p85=snap.forecast_p85, budget=previous.budget if previous else None,
+            change_request_id=cr.id, status="approved", approved_by=name, approved_at=now,
+        )
+        self.store.put(baseline, actor=actor, rationale=f"re-baselined by {cr.id}")
+        if previous is not None:
+            self.store.put(previous.model_copy(update={"status": "superseded"}), actor=actor,
+                           rationale=f"superseded by {baseline.id}")
+        outcome["baseline"] = baseline.id
+
+        follow_ups = []
+        by_repo: dict[str, list[int]] = {}
+        for item_id in sorted(moved & {i.id for i in scope}):
+            repo, _, number = item_id.rpartition("#")
+            if repo in profile.repos and number.isdigit():
+                by_repo.setdefault(repo, []).append(int(number))
+        for repo, numbers in by_repo.items():
+            target = proposal.move_to_milestone
+            filed = self.propose_action(
+                project_id, "github.set_milestone", {"repo": repo, "issue_numbers": numbers, "milestone": target},
+                actor=CHANGE_CONTROL_ACTOR, change_request_id=cr.id,
+                title=f"Move {len(numbers)} issue{'s' * (len(numbers) != 1)} in {repo} "
+                      + (f"to milestone {target}" if target else "out of the release milestone"),
+                rationale=f"Implements {cr.id}, approved by {name}.",
+            )
+            follow_ups.append(filed["id"])
+        if follow_ups:
+            outcome["actions_waiting_for_approval"] = follow_ups
+        else:
+            self.store.put(approved.model_copy(update={"status": "implemented"}), actor=CHANGE_CONTROL_ACTOR,
+                           rationale="nothing left to do outside PM Copilot")
+            outcome["implemented"] = True
+        return outcome
+
+    def _approve_action(self, request: ActionRequest, actor: str, note: str | None) -> dict[str, Any]:
+        """Record the approval, then carry the action out as the executor and record what happened."""
+        self._require_status(request, ("pending",))
+        project_id, name = request.project_id, _human_name(actor)
+        approved = request.model_copy(update={"status": "approved", "decided_by": name, "decision_note": note,
+                                              "decided_at": self._clock()})
+        self.store.put(approved, actor=actor, rationale=note or "approved")
+        repo = request.typed_payload().repo
+        try:
+            if repo not in self.profile(project_id).repos:
+                raise GovernanceError([f"{repo} is no longer one of this project's repos"])
+            if self._github is None:
+                self._github = GitHubClient()
+            outcome, status = actions.execute(request, self._github, approved_by=name), "executed"
+        except actions.ActionError as exc:
+            outcome, status = {"error": str(exc), **exc.partial}, "failed"
+        except (GitHubError, GovernanceError, httpx.HTTPError) as exc:
+            outcome, status = {"error": str(exc)}, "failed"
+        done = approved.model_copy(update={"status": status, "result": outcome, "executed_at": self._clock()})
+        result = self.store.put(done, actor=EXECUTOR_ACTOR, rationale=f"carried out after approval by {name}")
+        if status == "executed" and request.change_request_id:
+            self._mark_change_implemented(project_id, request.change_request_id)
+        return {"id": request.id, "version": result.version, "approved": True, "status": status, "result": outcome}
+
+    def _mark_change_implemented(self, project_id: str, change_request_id: str) -> None:
+        stored = self.store.get(project_id, "change_request", change_request_id)
+        if stored is None or stored.artifact.status != "approved":
+            return
+        linked = [s.artifact for s in self.store.list_latest(project_id, "action_request")
+                  if s.artifact.change_request_id == change_request_id]
+        if linked and all(a.status == "executed" for a in linked):
+            self.store.put(stored.artifact.model_copy(update={"status": "implemented"}), actor=EXECUTOR_ACTOR,
+                           rationale="all follow-up actions carried out")
 
     # ----- Google: calendar and email drafts ------------------------------
 
@@ -503,6 +786,22 @@ class Copilot:
         if stored is None:
             raise LookupError(f"no {kind} {artifact_id!r} in project {project_id!r}")
         return stored.artifact
+
+    def _require_current(self, project_id: str, kind: str, artifact_id: str,
+                         expected_version: int | None) -> Artifact:
+        stored = self.store.get(project_id, kind, artifact_id)
+        if stored is None:
+            raise LookupError(f"no {kind} {artifact_id!r} in project {project_id!r}")
+        if expected_version is not None and stored.version != expected_version:
+            raise ValueError(f"{artifact_id} changed since you opened it (you saw version {expected_version}, "
+                             f"it is now version {stored.version}); review it again")
+        return stored.artifact
+
+    @staticmethod
+    def _require_status(artifact: Artifact, allowed: tuple[str, ...]) -> None:
+        status = artifact.status
+        if status not in allowed:
+            raise ValueError(f"{artifact.id} is {status}, so it can't be decided now")
 
     @staticmethod
     def _check_writable_kind(kind: str, actor: str) -> None:

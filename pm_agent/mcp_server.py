@@ -39,10 +39,13 @@ code.
 
 How to work with it:
 - Start from a playbook prompt (initiate_project, develop_scope_structure, develop_schedule,
-  identify_and_analyze_risks, monitor_and_control_performance, manage_communications).
+  identify_and_analyze_risks, monitor_and_control_performance, manage_communications,
+  assess_and_implement_changes).
 - Never compute numbers, dates or RAG yourself; call the tools.
-- You can propose but not approve. Approvals, risk promotion and threshold changes are human-only and
-  are refused by the store. Point the user at `python -m pm_agent approve|reject ...`.
+- You can propose but not approve. Approvals, risk promotion, baselines and threshold changes are
+  human-only and are refused by the store. Changes on GitHub (new issues, milestone moves) are filed as
+  action requests that wait for the user. Point the user at their inbox (`python -m pm_agent ui`, or
+  `python -m pm_agent inbox|approve|reject ...`).
 - Cite evidence in `sources` and explain yourself in `rationale` whenever you save.
 """
 
@@ -152,6 +155,57 @@ def build_server(copilot: Copilot, actor: str = AGENT_ACTOR) -> _Server:
     def risk_heatmap(project_id: str) -> dict[str, Any]:
         """Active risks ranked by probability x impact, and the 5x5 heat map."""
         return copilot.risk_heatmap(project_id)
+
+    # ----- change control ---------------------------------------------
+
+    @tool
+    def propose_baseline(project_id: str, name: str, reason: str) -> dict[str, Any]:
+        """Snapshot the current release scope, target date and forecast as a proposed baseline.
+        Scope growth and forecast drift are measured against it once a human approves it."""
+        return copilot.propose_baseline(project_id, actor=actor, name=name, reason=reason)
+
+    @tool
+    def baseline_variance(project_id: str) -> dict[str, Any]:
+        """Items added and removed since the approved baseline, net scope growth with its RAG, target shift,
+        and how far the P85 forecast has drifted."""
+        return copilot.baseline_variance(project_id)
+
+    @tool
+    def assess_change_request(project_id: str, change_request_id: str) -> dict[str, Any]:
+        """Compute the before/after impact of a change request's proposal (remaining items, forecast P50/P85,
+        schedule RAG, items done by target, objectives and risks touched) and attach it to the request.
+        Run it again after every change to the proposal."""
+        return copilot.assess_change_request(project_id, change_request_id, requested_by=actor)
+
+    @tool
+    def propose_github_issues(project_id: str, repo: str, issues: list[dict[str, Any]], rationale: str,
+                              change_request_id: str | None = None,
+                              sources: list[str] | None = None) -> dict[str, Any]:
+        """Ask the user to approve creating GitHub issues in one of the project's repos. Each issue is
+        {"title", "body", "labels": [...], "milestone": "v1"}; up to 20 per request. Nothing is created until
+        the user approves it in their inbox."""
+        return copilot.propose_action(
+            project_id, "github.create_issues", {"repo": repo, "issues": issues}, actor=actor,
+            title=f"Create {len(issues)} issue{'s' * (len(issues) != 1)} in {repo}", rationale=rationale,
+            sources=sources, change_request_id=change_request_id)
+
+    @tool
+    def propose_milestone_move(project_id: str, repo: str, issue_numbers: list[int], milestone: str | None,
+                               rationale: str, change_request_id: str | None = None) -> dict[str, Any]:
+        """Ask the user to approve moving issues to another GitHub milestone (None clears it). Approving a
+        change request files these automatically; use this for moves outside a change request."""
+        return copilot.propose_action(
+            project_id, "github.set_milestone", {"repo": repo, "issue_numbers": issue_numbers,
+                                                 "milestone": milestone},
+            actor=actor, title=f"Move {len(issue_numbers)} issue{'s' * (len(issue_numbers) != 1)} in {repo} "
+                               + (f"to {milestone}" if milestone else "out of their milestone"),
+            rationale=rationale, change_request_id=change_request_id)
+
+    @tool
+    def list_inbox(project_id: str) -> dict[str, Any]:
+        """Everything waiting for the user's decision, newest first: action requests, submitted change
+        requests, proposed baselines, risks and decisions, and an unapproved charter."""
+        return {"items": copilot.inbox(project_id)}
 
     # ----- Google (needs `python -m pm_agent google-auth`) ----------------
 

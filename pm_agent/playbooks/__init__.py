@@ -39,8 +39,10 @@ AUTONOMY_MEANING = {
 
 GUARDRAILS = [
     "Numbers, dates, forecasts and RAG colours come from the tools. Never compute or choose them yourself.",
-    "You can propose; only the human approves charters, decisions and change requests, promotes risks, "
-    "and changes thresholds. The store enforces this, so don't try to work around a refusal.",
+    "You can propose; only the human approves charters, decisions, change requests and baselines, promotes "
+    "risks, and changes thresholds. The store enforces this, so don't try to work around a refusal.",
+    "Changes on GitHub go through action requests that the human approves. Never claim something was "
+    "created or moved on GitHub until the request shows 'executed'.",
     "Put the evidence (issue URLs, doc links, meeting names) in `sources` and your reasoning in "
     "`rationale` when you save.",
     "If data is missing or stale, say 'unknown' and ask. Don't fill gaps with guesses.",
