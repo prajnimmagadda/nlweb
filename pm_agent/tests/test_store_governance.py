@@ -1,6 +1,7 @@
 import pytest
 
 from pm_agent.governance import AutonomyLevel, GovernanceError
+from pm_agent.governance.rules import EXECUTOR_ACTOR
 from pm_agent.schemas import ChangeImpact, ChangeRequest, Charter, Decision, ProjectProfile, RagThresholds, Risk
 from pm_agent.store import Store
 
@@ -95,9 +96,14 @@ def test_change_request_lifecycle(store):
         store.put(cr.model_copy(update={"status": "approved"}), actor=AGENT)
     approved = cr.model_copy(update={"status": "approved", "decided_by": "prajwal", "decided_at": NOW})
     store.put(approved, actor=HUMAN)
-    store.put(approved.model_copy(update={"status": "implemented"}), actor=AGENT)
+    # Once decided, the content is frozen: the agent can neither edit it nor declare it implemented.
+    with pytest.raises(GovernanceError, match="can't be changed"):
+        store.put(approved.model_copy(update={"description": "something else"}), actor=AGENT)
+    with pytest.raises(GovernanceError, match="can't be changed"):
+        store.put(approved.model_copy(update={"status": "implemented"}), actor=AGENT)
     with pytest.raises(GovernanceError):
-        store.put(approved.model_copy(update={"status": "implemented", "decided_by": "copilot"}), actor=AGENT)
+        store.put(approved.model_copy(update={"status": "implemented", "title": "x"}), actor=EXECUTOR_ACTOR)
+    store.put(approved.model_copy(update={"status": "implemented"}), actor=EXECUTOR_ACTOR)
 
 
 def test_thresholds_are_human_only(store):

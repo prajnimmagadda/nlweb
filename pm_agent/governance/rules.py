@@ -18,6 +18,9 @@ _ACTOR_RE = re.compile(r"^(human|agent|system):[\w .@+-]+$")
 
 IMPACT_ACTOR = "system:impact-analysis"
 EXECUTOR_ACTOR = "system:executor"
+CHANGE_CONTROL_ACTOR = "system:change-control"
+# System components that carry out an approved change request.
+_IMPLEMENTERS = (EXECUTOR_ACTOR, CHANGE_CONTROL_ACTOR)
 
 
 class AutonomyLevel(IntEnum):
@@ -79,12 +82,32 @@ _HUMAN_ONLY_PROFILE_FIELDS = {
 }
 
 
+# Fields an agent may fill in when it creates a project, but not change afterwards: they define
+# the release scope and schedule that variance is measured against, and which repos PM Copilot
+# may write to. Later changes go through a change request or the human.
+_SET_ON_CREATION_PROFILE_FIELDS = {
+    "repos": "the repos",
+    "start_date": "the start date",
+    "target_date": "the target date",
+    "release_milestone": "the release milestone",
+    "iteration_days": "the iteration length",
+    "github_project": "the project board",
+    "status_mapping": "the status mapping",
+}
+
+
 def _human_only_profile_fields(new: ProjectProfile, previous: ProjectProfile | None, actor: str) -> str | None:
     baseline = previous or ProjectProfile(id=new.id, project_id=new.project_id, name=new.name)
     changed = [label for field, label in _HUMAN_ONLY_PROFILE_FIELDS.items()
                if getattr(new, field) != getattr(baseline, field)]
     if changed:
         return "only a human may change " + ", ".join(changed)
+    if previous is not None:
+        changed = [label for field, label in _SET_ON_CREATION_PROFILE_FIELDS.items()
+                   if getattr(new, field) != getattr(previous, field)]
+        if changed:
+            return (f"only a human may change {', '.join(changed)} once the project exists; "
+                    "propose a change request instead")
     return None
 
 
@@ -117,12 +140,14 @@ def _change_request_status(new: ChangeRequest, previous: ChangeRequest | None, a
     )
     if (new.decided_by, new.decision_rationale, new.decided_at) != decision_before:
         return "only a human may record a change request decision"
-    allowed = (
-        new.status == before_status
-        or (new.status in ("draft", "submitted") and before_status in (None, "draft", "submitted"))
-        or (new.status == "implemented" and before_status == "approved")
-    )
-    if not allowed:
+    if previous is not None and before_status not in ("draft", "submitted"):
+        # Decided: the content is what the human approved or rejected, and stays that way.
+        implementing = (before_status == "approved" and new.status == "implemented" and actor in _IMPLEMENTERS
+                        and new.model_copy(update={"status": "approved"}) == previous)
+        if new != previous and not implementing:
+            return f"{previous.id} is {before_status}; it can't be changed any more (file a new change request)"
+        return None
+    if new.status not in ("draft", "submitted"):
         return f"agents may not move a change request from {before_status or 'new'} to {new.status}"
     return None
 
@@ -144,10 +169,15 @@ def _baseline_status(new: Baseline, previous: Baseline | None, actor: str) -> st
 def _action_request(new: ActionRequest, previous: ActionRequest | None, actor: str) -> str | None:
     outcome = (new.status, new.result, new.executed_at)
     decision = (new.decided_by, new.decision_note, new.decided_at)
+    links = (new.change_request_id, new.replaces)
     if previous is None:
         if outcome != ("pending", None, None) or decision != (None, None, None):
             return "agents may only file action requests as 'pending'"
+        if links != (None, None) and actor != CHANGE_CONTROL_ACTOR:
+            return "only change control links an action request to a change request"
         return None
+    if links != (previous.change_request_id, previous.replaces):
+        return "an action request's links can't change"
     if decision != (previous.decided_by, previous.decision_note, previous.decided_at):
         return "only a human may approve or reject an action request"
     if new.payload != previous.payload and previous.status != "pending":

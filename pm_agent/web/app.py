@@ -15,7 +15,10 @@ this server never grants, so other sites can't drive it from your browser.
 """
 
 import json
+import os
 import secrets
+import sqlite3
+import tempfile
 import threading
 import uuid
 import webbrowser
@@ -41,6 +44,7 @@ from pm_agent.governance import AutonomyLevel, GovernanceError
 from pm_agent.integrations.github import GitHubError
 from pm_agent.integrations.google import GoogleError
 from pm_agent.playbooks import load_playbooks
+from pm_agent.schemas import RagThresholds
 from pm_agent.schemas.project import DEFAULT_PLAYBOOKS
 from pm_agent.service import Copilot
 
@@ -128,6 +132,16 @@ async def _plain(send: Send, status: int, text: str) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _text(body: dict[str, Any], key: str, limit: int = 2000) -> str | None:
+    """An optional string field from a JSON body, stripped; None when missing or blank."""
+    value = body.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > limit:
+        raise ValueError(f"{key} must be text under {limit} characters")
+    return value.strip() or None
+
+
 def _error_message(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         parts = []
@@ -147,6 +161,8 @@ def _status_for(exc: Exception) -> int:
         return 404
     if isinstance(exc, (GitHubError, GoogleError)):
         return 502
+    if isinstance(exc, sqlite3.Error):
+        return 409
     return 400
 
 
@@ -229,6 +245,9 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
             except (HttpError, GovernanceError, LookupError, ValueError, GitHubError, GoogleError,
                     ForecastError) as exc:
                 return JSONResponse({"error": _error_message(exc)}, status_code=_status_for(exc))
+            except sqlite3.Error as exc:
+                return JSONResponse({"error": f"the database was busy or refused the write ({exc}); try again"},
+                                    status_code=409)
             return JSONResponse(to_jsonable_python(result))
 
         return wrapped
@@ -301,9 +320,9 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
         return {"items": copilot.history(project_id, kind, artifact_id)}
 
     def decide(req: Req, project_id: str, kind: str, artifact_id: str) -> dict[str, Any]:
-        decision, note = req.body.get("decision"), (req.body.get("note") or "").strip() or None
+        decision, note = req.body.get("decision"), _text(req.body, "note")
         version = req.body.get("version")
-        if version is not None and not isinstance(version, int):
+        if version is not None and (not isinstance(version, int) or isinstance(version, bool)):
             raise ValueError("version must be an integer")
         if decision == "approve":
             result = copilot.approve(project_id, kind, artifact_id, actor=user, note=note, expected_version=version)
@@ -315,22 +334,28 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
             raise ValueError("decision must be 'approve' or 'reject'")
         return {**result, "counts": counts(project_id)}
 
+    def refile(req: Req, project_id: str, artifact_id: str) -> dict[str, Any]:
+        return {**copilot.refile_action(project_id, artifact_id, actor=user), "counts": counts(project_id)}
+
     def assess(req: Req, project_id: str, artifact_id: str) -> dict[str, Any]:
         return copilot.assess_change_request(project_id, artifact_id, requested_by=user)
 
     def change_requests(req: Req, project_id: str) -> dict[str, Any]:
-        return {"items": sorted(copilot.list_artifacts(project_id, "change_request"),
-                                key=lambda c: int(c["id"].split("-")[1]), reverse=True)}
+        def newest_first(c: dict[str, Any]) -> tuple[int, str]:
+            number = c["id"].rsplit("-", 1)[-1]
+            return (int(number) if number.isdigit() else -1, c["id"])
+
+        return {"items": sorted(copilot.list_artifacts(project_id, "change_request"), key=newest_first, reverse=True)}
 
     def baseline(req: Req, project_id: str) -> dict[str, Any]:
         return copilot.baseline_variance(project_id)
 
     def propose_baseline(req: Req, project_id: str) -> dict[str, Any]:
-        name = (req.body.get("name") or "").strip()
+        name = _text(req.body, "name", 120)
         if not name:
             raise ValueError("give the baseline a name")
         return copilot.propose_baseline(project_id, actor=user, name=name,
-                                        reason=(req.body.get("reason") or "").strip() or "set from the web UI")
+                                        reason=_text(req.body, "reason", 500) or "set from the web UI")
 
     def settings(req: Req, project_id: str) -> dict[str, Any]:
         google = copilot.google
@@ -342,11 +367,12 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
         profile_changes, thresholds = req.body.get("profile") or {}, req.body.get("thresholds")
         if not isinstance(profile_changes, dict) or not (thresholds is None or isinstance(thresholds, dict)):
             raise ValueError("expected {'profile': {...}, 'thresholds': {...}}")
+        current = copilot.profile(project_id).thresholds.model_dump()
+        if thresholds:  # check them first, so a bad threshold doesn't leave the profile half saved
+            RagThresholds.model_validate({**current, **thresholds})
         result = copilot.update_profile(project_id, profile_changes, actor=user, rationale="changed in the web UI")
-        if thresholds:
-            current = copilot.profile(project_id).thresholds.model_dump()
-            if {**current, **thresholds} != current:
-                copilot.set_thresholds(project_id, thresholds, actor=user, rationale="changed in the web UI")
+        if thresholds and {**current, **thresholds} != current:
+            copilot.set_thresholds(project_id, thresholds, actor=user, rationale="changed in the web UI")
         return {"version": result["version"], "profile": copilot.profile(project_id).model_dump(mode="json")}
 
     def add_schedule(req: Req, project_id: str) -> dict[str, Any]:
@@ -373,23 +399,21 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
         return {"items": items[:max(1, min(int(limit), 100))]}
 
     def start_run(req: Req, project_id: str) -> dict[str, Any]:
-        playbook = req.body.get("playbook")
+        playbook = _text(req.body, "playbook", 100)
         if playbook not in {p.id.rsplit(".", 1)[-1] for p in load_playbooks().values()}:
             raise ValueError(f"unknown playbook {playbook!r}")
         copilot.profile(project_id)
-        material = req.body.get("material") or None
-        if material is not None and (not isinstance(material, str) or len(material) > _MAX_MATERIAL):
-            raise ValueError(f"material must be text under {_MAX_MATERIAL} characters")
+        material = _text(req.body, "material", _MAX_MATERIAL)
         options: dict[str, Any] = {}
-        if req.body.get("model"):
-            options["model"] = str(req.body["model"]).strip()
+        if model := _text(req.body, "model", 100):
+            options["model"] = model
         if req.body.get("effort"):
             if req.body["effort"] not in ("low", "medium", "high", "xhigh", "max"):
                 raise ValueError("effort must be low, medium, high, xhigh or max")
             options["effort"] = req.body["effort"]
         if req.body.get("max_turns") is not None:
             turns = req.body["max_turns"]
-            if not isinstance(turns, int) or not 1 <= turns <= 100:
+            if not isinstance(turns, int) or isinstance(turns, bool) or not 1 <= turns <= 100:
                 raise ValueError("turn limit must be a whole number from 1 to 100")
             options["max_turns"] = turns
         if jobs.running(project_id, playbook):
@@ -436,6 +460,7 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
         Route(p + "/items/{kind}/{artifact_id}", endpoint(item)),
         Route(p + "/items/{kind}/{artifact_id}/history", endpoint(item_history)),
         Route(p + "/items/{kind}/{artifact_id}/decision", endpoint(decide), methods=["POST"]),
+        Route(p + "/items/action_request/{artifact_id}/refile", endpoint(refile), methods=["POST"]),
         Route(f"{p}/change-requests", endpoint(change_requests)),
         Route(p + "/change-requests/{artifact_id}/assess", endpoint(assess), methods=["POST"]),
         Route(f"{p}/baseline", endpoint(baseline)),
@@ -451,6 +476,18 @@ def create_app(copilot: Copilot, *, user: str, token: str, port: int = DEFAULT_P
     app = Starlette(routes=routes)
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     return Guard(app, token=token, allowed_hosts=hosts)  # type: ignore[return-value]
+
+
+def _open_privately(url: str) -> None:
+    """Open the browser on a redirect file only you can read, so the token never appears on a command
+    line (other local users can read those)."""
+    fd, path = tempfile.mkstemp(prefix="pm-copilot-", suffix=".html")  # created with mode 0600
+    page = (f'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={url}">'
+            f'<title>PM Copilot</title><a href="{url}">Open PM Copilot</a>')
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(page)
+    webbrowser.open(Path(path).as_uri())
+    threading.Timer(60, lambda: Path(path).unlink(missing_ok=True)).start()
 
 
 def serve(db_path: str, *, port: int = DEFAULT_PORT, open_browser: bool = True) -> None:
@@ -470,7 +507,7 @@ def serve(db_path: str, *, port: int = DEFAULT_PORT, open_browser: bool = True) 
     print(f"PM Copilot UI for {current_user()}: {url}\nKeep this link private; it lets whoever has it act as you. "
           "Press Ctrl+C to stop.", flush=True)
     if open_browser:
-        threading.Timer(0.8, webbrowser.open, args=(url,)).start()
+        threading.Timer(0.8, _open_privately, args=(url,)).start()
     try:
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", server_header=False)
     finally:

@@ -130,3 +130,28 @@ def test_runs_happen_in_the_background(client):
         time.sleep(0.02)
     assert job["status"] == "finished" and job["result"]["summary"] == "read 5 characters"
     assert client.get("/api/jobs/unknown").status_code == 404
+
+
+def test_bad_input_is_a_400_not_a_crash(client, copilot):
+    for body in [{"decision": "approve", "note": ["x"]}, {"decision": "approve", "version": True},
+                 {"decision": "maybe"}]:
+        assert client.post("/api/projects/demo/items/risk/R-2/decision", json=body).status_code == 400
+    assert client.post("/api/projects/demo/baseline", json={"name": 5}).status_code == 400
+    assert client.post("/api/projects/demo/runs", json={"playbook": ["develop_schedule"]}).status_code == 400
+    assert client.post("/api/projects/demo/sync", content=b"[1, 2]",
+                       headers={"Content-Type": "application/json"}).status_code == 400
+    name = copilot.profile("demo").name
+    half = client.put("/api/projects/demo/settings", json={"profile": {"name": "Changed"},
+                                                          "thresholds": {"spi_green": 0.5, "spi_amber": 0.9}})
+    assert half.status_code == 400 and copilot.profile("demo").name == name  # nothing saved
+
+
+def test_failed_or_rejected_actions_can_be_filed_again(client, copilot):
+    client.post("/api/projects/demo/items/action_request/AR-1/decision",
+                json={"decision": "reject", "note": "later"}).raise_for_status()
+    out = client.post("/api/projects/demo/items/action_request/AR-1/refile", json={}).json()
+    assert out["id"] == "AR-2" and out["counts"]["inbox"] == 4
+    assert copilot.store.get("demo", "action_request", "AR-2").artifact.replaces == "AR-1"
+    assert client.post("/api/projects/demo/items/action_request/AR-2/refile", json={}).status_code == 400
+    inbox = {i["id"]: i for i in client.get("/api/projects/demo/inbox").json()["items"]}
+    assert inbox["CR-1"]["requested_by"] == "agent:copilot"  # not the engine that wrote the analysis last

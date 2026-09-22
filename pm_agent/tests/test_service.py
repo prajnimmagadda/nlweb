@@ -15,7 +15,13 @@ def _seed_items(copilot, count_done=20, open_items=6):
 
 
 def test_setup_project_updates_only_given_fields(copilot, project):
-    copilot.setup_project(project, actor=AGENT, target_date="2026-12-15")
+    copilot.setup_project(project, actor=AGENT, name="Renamed")  # harmless fields stay open to the agent
+    for field, value in [("target_date", "2027-06-30"), ("repos", ["o/r", "attacker/x"]),
+                         ("release_milestone", "v9"), ("start_date", "2026-01-01"), ("iteration_days", 7)]:
+        with pytest.raises(GovernanceError, match="change request"):
+            copilot.setup_project(project, actor=AGENT, **{field: value})
+    copilot.setup_project("fresh", actor=AGENT, name="New", repos=["o/new"], target_date="2027-01-31")
+    copilot.setup_project(project, actor=HUMAN, target_date="2026-12-15")
     profile = copilot.profile(project)
     assert str(profile.target_date) == "2026-12-15"
     assert profile.repos == ["o/r"] and profile.release_milestone == "v1"

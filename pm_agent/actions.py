@@ -2,6 +2,8 @@
 
 from typing import Any
 
+import httpx
+
 from pm_agent.integrations.github import GitHubClient, GitHubError
 from pm_agent.schemas import ActionRequest, CreateIssuesPayload, SetMilestonePayload
 
@@ -52,8 +54,8 @@ def execute(request: ActionRequest, github: GitHubClient, approved_by: str) -> d
                     body["milestone"] = number
                 response = github.create_issue(payload.repo, body)
                 created.append({"number": response["number"], "url": response.get("html_url"), "title": issue.title})
-        except GitHubError as exc:
-            raise ActionError(str(exc), {"created": created}) from exc
+        except (GitHubError, httpx.HTTPError) as exc:
+            raise ActionError(str(exc) or type(exc).__name__, {"created": created}) from exc
         return {"created": created}
     if isinstance(payload, SetMilestonePayload):
         updated: list[int] = []
@@ -62,7 +64,7 @@ def execute(request: ActionRequest, github: GitHubClient, approved_by: str) -> d
             for issue_number in payload.issue_numbers:
                 github.update_issue(payload.repo, issue_number, {"milestone": number})
                 updated.append(issue_number)
-        except GitHubError as exc:
-            raise ActionError(str(exc), {"updated": updated}) from exc
+        except (GitHubError, httpx.HTTPError) as exc:
+            raise ActionError(str(exc) or type(exc).__name__, {"updated": updated}) from exc
         return {"updated": updated, "milestone": payload.milestone}
     raise ActionError(f"no executor for {request.action}", {})

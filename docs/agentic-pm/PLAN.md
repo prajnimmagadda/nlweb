@@ -75,7 +75,7 @@ tools unattended, for scheduled rituals such as the Monday status report.
   injection. Deterministic checks read the store and audit log. The harness is tested
   offline; the live evals have not been run yet (no API key in the build environment).
 
-**Built in Phase 2** (111 tests in total):
+**Built in Phase 2** (121 tests in total):
 - **Baselines and variance.** A computed snapshot of release scope, target and forecast that
   a human approves. Net scope growth against it is a new RAG dimension (amber at 10%, red at
   20%, human-set), and P85 drift and target shift are reported.
@@ -85,8 +85,12 @@ tools unattended, for scheduled rituals such as the Monday status report.
   re-baselines, and files the milestone moves. A new *Assess a change* playbook drives this.
 - **Approval queue (L2).** Agents file GitHub writes (create issues, move milestones) as
   pending action requests. A human approves; `system:executor` carries them out and records the
-  result, including partial failures. Payloads freeze once decided, and repos outside the
-  project are refused. Demo projects are sandboxes where actions are simulated.
+  result, including partial failures. Payloads freeze once decided, repos outside the project
+  are refused, and approvals are version-checked inside one transaction so a request can't run
+  twice. Demo projects are sandboxes where actions are simulated.
+- **Review hardening.** An independent review found governance gaps, now closed: agents can no
+  longer change repos, dates or the milestone after creation, decided change requests are
+  frozen, re-baselining applies only what was approved, and ids follow each kind's pattern.
 - **Inbox.** One list of everything waiting for a human, with stale-version protection on
   every decision (`--version` in the CLI, automatic in the UI).
 - **Web UI.** Dashboard, inbox, change requests, run a playbook, schedules and settings,

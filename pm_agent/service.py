@@ -7,6 +7,7 @@ write regardless of which path the write came from.
 """
 
 import math
+import re
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
@@ -20,7 +21,7 @@ from pm_agent.engines import impact, rag, risk
 from pm_agent.engines.flow import FlowMetrics, compute_flow
 from pm_agent.engines.forecast import ForecastError, forecast_how_many, forecast_when
 from pm_agent.governance import GovernanceError, is_human, is_system, validate_actor
-from pm_agent.governance.rules import EXECUTOR_ACTOR, IMPACT_ACTOR
+from pm_agent.governance.rules import CHANGE_CONTROL_ACTOR, EXECUTOR_ACTOR, IMPACT_ACTOR
 from pm_agent.integrations.github import GitHubClient, GitHubError, estimate_from_labels, sync_project
 from pm_agent.integrations.google import GOOGLE_DOC, GoogleClient, GoogleError
 from pm_agent.playbooks import resolve_playbook
@@ -29,6 +30,7 @@ from pm_agent.schemas import (
     ActionRequest,
     Artifact,
     Baseline,
+    ChangeProposal,
     ChangeRequest,
     Charter,
     ProjectProfile,
@@ -40,10 +42,9 @@ from pm_agent.schemas import (
     WorkItem,
     artifact_type,
 )
-from pm_agent.store import Store
+from pm_agent.store import Store, StoredArtifact
 
 REPORTING_ACTOR = "system:reporting"
-CHANGE_CONTROL_ACTOR = "system:change-control"
 SANDBOX_ACTOR = "system:sandbox"
 OPEN_STATES = ("todo", "in_progress", "blocked")
 
@@ -84,6 +85,11 @@ def _utc_now() -> datetime:
 
 def _human_name(actor: str) -> str:
     return actor.split(":", 1)[1]
+
+
+def _number(artifact_id: str) -> int:
+    """The sequence number of an id like 'B-3'."""
+    return int(artifact_id.rsplit("-", 1)[1])
 
 
 def _clip(text: str, limit: int) -> str:
@@ -368,6 +374,10 @@ class Copilot:
         if not data.get("id"):
             data["id"] = project_id if kind == "project_profile" else (
                 _SINGLETON_IDS.get(kind) or self.store.new_id(project_id, kind))
+        elif kind in _SINGLETON_IDS and data["id"] != _SINGLETON_IDS[kind]:
+            raise ValueError(f"a project has one {kind}; its id is {_SINGLETON_IDS[kind]!r}")
+        elif cls.id_prefix and not re.fullmatch(rf"{re.escape(cls.id_prefix)}-\d+", str(data["id"])):
+            raise ValueError(f"{kind} ids look like {cls.id_prefix}-3; leave id out to get the next one")
         artifact = cls.model_validate(data)
         result = self.store.put(artifact, actor=actor, rationale=rationale, sources=sources or [])
         return {"id": artifact.id, "version": result.version, "changed": result.changed}
@@ -497,24 +507,45 @@ class Copilot:
         return {"id": cr.id, "version": result.version, "analysis": analysis.model_dump(mode="json")}
 
     def propose_action(self, project_id: str, action: str, payload: dict[str, Any], *, actor: str, title: str,
-                       rationale: str, sources: list[str] | None = None,
-                       change_request_id: str | None = None) -> dict[str, Any]:
-        """File an external write (e.g. creating GitHub issues) that waits for a human's approval."""
+                       rationale: str, sources: list[str] | None = None, change_request_id: str | None = None,
+                       replaces: str | None = None) -> dict[str, Any]:
+        """File an external write (e.g. creating GitHub issues) that waits for a human's approval.
+
+        Only change control (or a human re-filing) links a request to a change request or to the request
+        it replaces; the store refuses those links from anyone else.
+        """
         validate_actor(actor)
         profile = self.profile(project_id)
         request = ActionRequest(
             id=self.store.new_id(project_id, "action_request"), project_id=project_id, action=action,
             title=title, payload=payload, rationale=rationale, requested_by=actor,
-            change_request_id=change_request_id,
+            change_request_id=change_request_id, replaces=replaces,
         )
         repo = request.typed_payload().repo
         if repo not in profile.repos:
             raise GovernanceError([f"{repo} isn't one of this project's repos ({', '.join(profile.repos) or 'none'})"])
         if change_request_id is not None:
             self._require(project_id, "change_request", change_request_id)
-        result = self.store.put(request, actor=actor, rationale=rationale, sources=sources or [])
+        result = self.store.put(request, actor=actor, rationale=rationale, sources=sources or [], expected_version=0)
         return {"id": request.id, "version": result.version, "status": "pending",
                 "note": "Waiting for a human to approve it in the inbox. Nothing has changed on GitHub yet."}
+
+    def refile_action(self, project_id: str, action_id: str, *, actor: str) -> dict[str, Any]:
+        """File a failed or rejected action request again, minus any issues it already created."""
+        self._require_human(actor, "re-file an action request")
+        old: ActionRequest = self._require(project_id, "action_request", action_id)
+        self._require_status(old, ("failed", "rejected"))
+        payload = dict(old.payload)
+        if old.action == "github.create_issues" and old.result and old.result.get("created"):
+            payload["issues"] = payload["issues"][len(old.result["created"]):]
+            if not payload["issues"]:
+                raise ValueError(f"{old.id} already created every issue it asked for")
+        linked = old.change_request_id is not None
+        return self.propose_action(
+            project_id, old.action, payload, actor=CHANGE_CONTROL_ACTOR if linked else actor,
+            title=old.title, rationale=f"Filed again by {_human_name(actor)} after {old.id} {old.status}. "
+                                        f"{old.rationale}",
+            change_request_id=old.change_request_id, replaces=old.id)
 
     def inbox(self, project_id: str) -> list[dict[str, Any]]:
         """Everything waiting for a human decision, newest first."""
@@ -524,24 +555,33 @@ class Copilot:
                 artifact = stored.artifact
                 if artifact.status != status:
                     continue
-                items.append({"kind": kind, "id": artifact.id, "verb": verb, "title": artifact.title
-                              if hasattr(artifact, "title") else artifact.name,
-                              "requested_by": stored.actor, "created_at": stored.created_at.isoformat(),
+                requested_by = getattr(artifact, "requested_by", None) or self._first_actor(project_id, kind,
+                                                                                            artifact.id)
+                items.append({"kind": kind, "id": artifact.id, "verb": verb,
+                              "title": getattr(artifact, "title", None) or getattr(artifact, "name", artifact.id),
+                              "requested_by": requested_by, "created_at": stored.created_at.isoformat(),
                               "version": stored.version})
         charter = self.store.get(project_id, "charter", "charter")
         if charter is not None and charter.artifact.approved_by is None:
             items.append({"kind": "charter", "id": "charter", "verb": "Approve the charter",
-                          "title": charter.artifact.title, "requested_by": charter.actor,
+                          "title": charter.artifact.title, "requested_by": self._first_actor(project_id, "charter",
+                                                                                              "charter"),
                           "created_at": charter.created_at.isoformat(), "version": charter.version})
         return sorted(items, key=lambda i: i["created_at"], reverse=True)
+
+    def _first_actor(self, project_id: str, kind: str, artifact_id: str) -> str:
+        first = self.store.get(project_id, kind, artifact_id, version=1)
+        return first.actor if first else "unknown"
 
     # ----- human decisions -----------------------------------------------
 
     def approve(self, project_id: str, kind: str, artifact_id: str, *, actor: str, note: str | None = None,
                 expected_version: int | None = None) -> dict[str, Any]:
-        """Approve as a human. expected_version guards against approving something that changed after you read it."""
+        """Approve as a human. expected_version guards against approving something that changed after you read it;
+        the decision is also refused if anyone else writes to the artifact while it is being recorded."""
         self._require_human(actor, "approve")
-        current = self._require_current(project_id, kind, artifact_id, expected_version)
+        stored = self._require_current(project_id, kind, artifact_id, expected_version)
+        current, version = stored.artifact, stored.version
         now, name = self._clock(), _human_name(actor)
         changes: dict[str, Any]
         if kind == "charter":
@@ -551,21 +591,22 @@ class Copilot:
         elif kind == "decision":
             changes = {"status": "accepted", "decided_by": name, "decided_at": now}
         elif kind == "change_request":
-            return self._approve_change(current, actor, note)
+            return self._approve_change(current, version, actor, note)
         elif kind == "baseline":
-            return self._approve_baseline(current, actor, note)
+            return self._approve_baseline(current, version, actor, note)
         elif kind == "action_request":
-            return self._approve_action(current, actor, note)
+            return self._approve_action(current, version, actor, note)
         else:
             raise ValueError(f"{kind} artifacts have no approval step")
         updated = type(current).model_validate({**current.model_dump(), **changes})
-        result = self.store.put(updated, actor=actor, rationale=note or "approved")
+        result = self.store.put(updated, actor=actor, rationale=note or "approved", expected_version=version)
         return {"id": artifact_id, "version": result.version, "approved": True}
 
     def reject(self, project_id: str, kind: str, artifact_id: str, *, actor: str, reason: str,
                expected_version: int | None = None) -> dict[str, Any]:
         self._require_human(actor, "reject")
-        current = self._require_current(project_id, kind, artifact_id, expected_version)
+        stored = self._require_current(project_id, kind, artifact_id, expected_version)
+        current = stored.artifact
         now, name = self._clock(), _human_name(actor)
         if kind == "risk":
             changes: dict[str, Any] = {"status": "rejected"}
@@ -583,22 +624,25 @@ class Copilot:
         else:
             raise ValueError(f"{kind} artifacts cannot be rejected")
         updated = type(current).model_validate({**current.model_dump(), **changes})
-        result = self.store.put(updated, actor=actor, rationale=reason)
+        result = self.store.put(updated, actor=actor, rationale=reason, expected_version=stored.version)
         return {"id": artifact_id, "version": result.version, "rejected": True}
 
-    def _approve_baseline(self, baseline: Baseline, actor: str, note: str | None) -> dict[str, Any]:
+    def _approve_baseline(self, baseline: Baseline, version: int, actor: str, note: str | None) -> dict[str, Any]:
         self._require_status(baseline, ("proposed",))
         previous = self.current_baseline(baseline.project_id)
+        if previous is not None and _number(baseline.id) < _number(previous.id):
+            raise ValueError(f"{baseline.id} was proposed before the current baseline {previous.id} was approved, "
+                             "so it would undo that; reject it and propose a new one if you still want it")
         approved = baseline.model_copy(update={"status": "approved", "approved_by": _human_name(actor),
                                                "approved_at": self._clock()})
-        result = self.store.put(approved, actor=actor, rationale=note or "approved")
+        result = self.store.put(approved, actor=actor, rationale=note or "approved", expected_version=version)
         if previous is not None:
             self.store.put(previous.model_copy(update={"status": "superseded"}), actor=actor,
                            rationale=f"superseded by {baseline.id}")
         return {"id": baseline.id, "version": result.version, "approved": True,
                 "superseded": previous.id if previous else None}
 
-    def _approve_change(self, cr: ChangeRequest, actor: str, note: str | None) -> dict[str, Any]:
+    def _approve_change(self, cr: ChangeRequest, version: int, actor: str, note: str | None) -> dict[str, Any]:
         """Record the decision, then implement what the proposal says: new target, new baseline, milestone moves."""
         self._require_status(cr, ("draft", "submitted"))
         proposal = cr.proposal
@@ -609,7 +653,7 @@ class Copilot:
         project_id, name, now = cr.project_id, _human_name(actor), self._clock()
         approved = cr.model_copy(update={"status": "approved", "decided_by": name, "decided_at": now,
                                          "decision_rationale": note})
-        result = self.store.put(approved, actor=actor, rationale=note or "approved")
+        result = self.store.put(approved, actor=actor, rationale=note or "approved", expected_version=version)
         outcome: dict[str, Any] = {"id": cr.id, "version": result.version, "approved": True}
         if proposal is None:
             return outcome
@@ -618,38 +662,16 @@ class Copilot:
             self.setup_project(project_id, actor=actor, target_date=proposal.new_target_date,
                                rationale=f"{cr.id} approved")
             outcome["target_date"] = proposal.new_target_date.isoformat()
+        outcome["baseline"] = self._rebaseline(cr, proposal, actor, now)
 
         profile = self.profile(project_id)
-        scope, _ = self._scope(project_id, None)
-        moved = set(proposal.move_out_item_ids)
-        after = [i for i in scope if i.id not in moved]
-        snap = self._release_snapshot(project_id, after, profile.target_date, extra_items=proposal.add_items,
-                                      extra_points=proposal.add_points)
-        previous = self.current_baseline(project_id)
-        carried = 0  # additions an earlier change approved that haven't reached the tracker yet
-        if previous is not None:
-            arrived = len({i.id for i in scope} - set(previous.scope_item_ids))
-            carried = max(previous.planned_additions - arrived, 0)
-        baseline = Baseline(
-            id=self.store.new_id(project_id, "baseline"), project_id=project_id,
-            name=f"Re-baseline for {cr.id}", reason=cr.title, scope_item_ids=sorted(i.id for i in after),
-            planned_additions=proposal.add_items + carried,
-            scope_points=snap.scope_points, target_date=profile.target_date, forecast_p50=snap.forecast_p50,
-            forecast_p85=snap.forecast_p85, budget=previous.budget if previous else None,
-            change_request_id=cr.id, status="approved", approved_by=name, approved_at=now,
-        )
-        self.store.put(baseline, actor=actor, rationale=f"re-baselined by {cr.id}")
-        if previous is not None:
-            self.store.put(previous.model_copy(update={"status": "superseded"}), actor=actor,
-                           rationale=f"superseded by {baseline.id}")
-        outcome["baseline"] = baseline.id
-
-        follow_ups = []
+        in_scope = {i.id for i in self._scope(project_id, None)[0]}
         by_repo: dict[str, list[int]] = {}
-        for item_id in sorted(moved & {i.id for i in scope}):
+        for item_id in sorted(set(proposal.move_out_item_ids) & in_scope):
             repo, _, number = item_id.rpartition("#")
             if repo in profile.repos and number.isdigit():
                 by_repo.setdefault(repo, []).append(int(number))
+        follow_ups = []
         for repo, numbers in by_repo.items():
             target = proposal.move_to_milestone
             filed = self.propose_action(
@@ -668,13 +690,43 @@ class Copilot:
             outcome["implemented"] = True
         return outcome
 
-    def _approve_action(self, request: ActionRequest, actor: str, note: str | None) -> dict[str, Any]:
-        """Record the approval, then carry the action out as the executor and record what happened."""
+    def _rebaseline(self, cr: ChangeRequest, proposal: ChangeProposal, actor: str, now: datetime) -> str:
+        """The new baseline is the old one changed by exactly what was approved: moved items leave, planned
+        additions are added. Scope that crept in without approval stays outside it, so it still shows as growth."""
+        project_id = cr.project_id
+        profile, previous = self.profile(project_id), self.current_baseline(project_id)
+        scope, _ = self._scope(project_id, None)
+        moved = set(proposal.move_out_item_ids)
+        base_ids = (set(previous.scope_item_ids) if previous else {i.id for i in scope}) - moved
+        planned = proposal.add_items + (previous.planned_additions if previous else 0)
+        base_items = [i for i in scope if i.id in base_ids]
+        snap = self._release_snapshot(project_id, base_items, profile.target_date, extra_items=planned,
+                                      extra_points=proposal.add_points)
+        baseline = Baseline(
+            id=self.store.new_id(project_id, "baseline"), project_id=project_id, name=f"Re-baseline for {cr.id}",
+            reason=cr.title, scope_item_ids=sorted(base_ids), planned_additions=planned,
+            scope_points=snap.scope_points, target_date=profile.target_date, forecast_p50=snap.forecast_p50,
+            forecast_p85=snap.forecast_p85, budget=previous.budget if previous else None,
+            change_request_id=cr.id, status="approved", approved_by=_human_name(actor), approved_at=now,
+        )
+        self.store.put(baseline, actor=actor, rationale=f"re-baselined by {cr.id}", expected_version=0)
+        if previous is not None:
+            self.store.put(previous.model_copy(update={"status": "superseded"}), actor=actor,
+                           rationale=f"superseded by {baseline.id}")
+        return baseline.id
+
+    def _approve_action(self, request: ActionRequest, version: int, actor: str, note: str | None) -> dict[str, Any]:
+        """Record the approval, then carry the action out as the executor and record what happened.
+
+        The approval write is version-checked, so if two people (or a CLI and a browser) approve the same
+        request at once, only one of them runs it.
+        """
         self._require_status(request, ("pending",))
         project_id, name = request.project_id, _human_name(actor)
         approved = request.model_copy(update={"status": "approved", "decided_by": name, "decision_note": note,
                                               "decided_at": self._clock()})
-        self.store.put(approved, actor=actor, rationale=note or "approved")
+        approved_version = self.store.put(approved, actor=actor, rationale=note or "approved",
+                                          expected_version=version).version
         repo, profile = request.typed_payload().repo, self.profile(project_id)
         try:
             if repo not in profile.repos:
@@ -689,8 +741,11 @@ class Copilot:
             outcome, status = {"error": str(exc), **exc.partial}, "failed"
         except (GitHubError, GovernanceError, httpx.HTTPError) as exc:
             outcome, status = {"error": str(exc)}, "failed"
+        except Exception as exc:  # noqa: BLE001 - the outcome must be recorded, or the request is stuck at approved
+            outcome, status = {"error": f"{type(exc).__name__}: {exc}"}, "failed"
         done = approved.model_copy(update={"status": status, "result": outcome, "executed_at": self._clock()})
-        result = self.store.put(done, actor=EXECUTOR_ACTOR, rationale=f"carried out after approval by {name}")
+        result = self.store.put(done, actor=EXECUTOR_ACTOR, rationale=f"carried out after approval by {name}",
+                                expected_version=approved_version)
         if status == "executed" and request.change_request_id:
             self._mark_change_implemented(project_id, request.change_request_id)
         return {"id": request.id, "version": result.version, "approved": True, "status": status, "result": outcome}
@@ -720,14 +775,17 @@ class Copilot:
         return outcome
 
     def _mark_change_implemented(self, project_id: str, change_request_id: str) -> None:
+        """A change is implemented once each of its follow-up actions, or the request that replaced it, has run."""
         stored = self.store.get(project_id, "change_request", change_request_id)
         if stored is None or stored.artifact.status != "approved":
             return
         linked = [s.artifact for s in self.store.list_latest(project_id, "action_request")
                   if s.artifact.change_request_id == change_request_id]
-        if linked and all(a.status == "executed" for a in linked):
+        replaced = {a.replaces for a in linked if a.replaces}
+        live = [a for a in linked if a.id not in replaced]
+        if live and all(a.status == "executed" for a in live):
             self.store.put(stored.artifact.model_copy(update={"status": "implemented"}), actor=EXECUTOR_ACTOR,
-                           rationale="all follow-up actions carried out")
+                           rationale="all follow-up actions carried out", expected_version=stored.version)
 
     # ----- Google: calendar and email drafts ------------------------------
 
@@ -839,14 +897,14 @@ class Copilot:
         return stored.artifact
 
     def _require_current(self, project_id: str, kind: str, artifact_id: str,
-                         expected_version: int | None) -> Artifact:
+                         expected_version: int | None) -> StoredArtifact:
         stored = self.store.get(project_id, kind, artifact_id)
         if stored is None:
             raise LookupError(f"no {kind} {artifact_id!r} in project {project_id!r}")
         if expected_version is not None and stored.version != expected_version:
             raise ValueError(f"{artifact_id} changed since you opened it (you saw version {expected_version}, "
                              f"it is now version {stored.version}); review it again")
-        return stored.artifact
+        return stored
 
     @staticmethod
     def _require_status(artifact: Artifact, allowed: tuple[str, ...]) -> None:

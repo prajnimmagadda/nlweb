@@ -93,7 +93,10 @@ def build_server(copilot: Copilot, actor: str = AGENT_ACTOR) -> _Server:
                       iteration_days: int | None = None, start_date: str | None = None,
                       target_date: str | None = None, release_milestone: str | None = None,
                       github_project: str | None = None, rationale: str | None = None) -> dict[str, Any]:
-        """Create or update a project profile. Only the fields you pass are changed.
+        """Create a project profile, or update it. Only the fields you pass are changed.
+
+        Once the project exists, repos, dates, the release milestone, iteration length and board are the
+        human's to change; to move the target date or scope, draft a change request instead.
 
         repos are GitHub 'owner/name' strings; dates are YYYY-MM-DD; release_milestone is the GitHub
         milestone whose issues form the release scope used for forecasting; github_project ('owner/number')
@@ -179,19 +182,18 @@ def build_server(copilot: Copilot, actor: str = AGENT_ACTOR) -> _Server:
 
     @tool
     def propose_github_issues(project_id: str, repo: str, issues: list[dict[str, Any]], rationale: str,
-                              change_request_id: str | None = None,
                               sources: list[str] | None = None) -> dict[str, Any]:
         """Ask the user to approve creating GitHub issues in one of the project's repos. Each issue is
         {"title", "body", "labels": [...], "milestone": "v1"}; up to 20 per request. Nothing is created until
-        the user approves it in their inbox."""
+        the user approves it in their inbox. If the issues come from a change request, say so in rationale."""
         return copilot.propose_action(
             project_id, "github.create_issues", {"repo": repo, "issues": issues}, actor=actor,
             title=f"Create {len(issues)} issue{'s' * (len(issues) != 1)} in {repo}", rationale=rationale,
-            sources=sources, change_request_id=change_request_id)
+            sources=sources)
 
     @tool
     def propose_milestone_move(project_id: str, repo: str, issue_numbers: list[int], milestone: str | None,
-                               rationale: str, change_request_id: str | None = None) -> dict[str, Any]:
+                               rationale: str) -> dict[str, Any]:
         """Ask the user to approve moving issues to another GitHub milestone (None clears it). Approving a
         change request files these automatically; use this for moves outside a change request."""
         return copilot.propose_action(
@@ -199,7 +201,7 @@ def build_server(copilot: Copilot, actor: str = AGENT_ACTOR) -> _Server:
                                                  "milestone": milestone},
             actor=actor, title=f"Move {len(issue_numbers)} issue{'s' * (len(issue_numbers) != 1)} in {repo} "
                                + (f"to {milestone}" if milestone else "out of their milestone"),
-            rationale=rationale, change_request_id=change_request_id)
+            rationale=rationale)
 
     @tool
     def list_inbox(project_id: str) -> dict[str, Any]:

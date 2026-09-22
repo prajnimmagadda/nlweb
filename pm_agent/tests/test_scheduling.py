@@ -78,7 +78,9 @@ def test_schedules_and_reach_are_human_only(copilot, project):
         with pytest.raises(GovernanceError, match="only a human"):
             copilot.setup_project(project, actor=AGENT, **{field: value})
         copilot.setup_project(project, actor=HUMAN, **{field: value})
-    copilot.setup_project(project, actor=AGENT, github_project="acme/7")  # reading config is fine
+    with pytest.raises(GovernanceError, match="project board"):
+        copilot.setup_project(project, actor=AGENT, github_project="acme/7")
+    copilot.setup_project(project, actor=HUMAN, github_project="acme/7")
     with pytest.raises(GovernanceError):
         copilot.store.put(copilot.profile(project).model_copy(update={"schedules": []}), actor=AGENT)
     copilot.remove_schedule(project, "identify_and_analyze_risks", actor=HUMAN)

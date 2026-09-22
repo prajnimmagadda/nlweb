@@ -135,6 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reason", required=True)
     p.add_argument("--version", type=int, help="refuse if the artifact is no longer at this version")
 
+    p = sub.add_parser("refile", help="file a failed or rejected action request again")
+    p.add_argument("project")
+    p.add_argument("id", help="action request id, e.g. AR-2")
+
     p = sub.add_parser("baseline", help="show variance against the approved baseline, or propose a new one")
     p.add_argument("project")
     p.add_argument("--propose", metavar="NAME", help="snapshot the current release as a proposed baseline")
@@ -246,6 +250,8 @@ def run(args: argparse.Namespace, copilot: Copilot) -> Any:
     if cmd == "reject":
         return copilot.reject(args.project, args.kind, args.id, actor=user, reason=args.reason,
                               expected_version=args.version)
+    if cmd == "refile":
+        return copilot.refile_action(args.project, args.id, actor=user)
     if cmd == "baseline":
         if args.propose:
             return copilot.propose_baseline(args.project, actor=user, name=args.propose, reason=args.reason)

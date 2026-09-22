@@ -316,3 +316,129 @@ def test_sandbox_projects_simulate_github_actions(copilot, project):
     assert copilot.store.get(project, "work_item", "o/r#7").artifact.milestone == "v2" and fake.requests == []
     with pytest.raises(ValueError, match="sandbox"):
         copilot.sync_github(project)
+
+
+# ----- regressions from review -------------------------------------------------
+
+
+def test_agents_cannot_link_actions_to_change_requests(copilot, project):
+    _seed(copilot)
+    cr = _change_request(copilot, project, {"new_target_date": "2026-12-21"})
+    with pytest.raises(GovernanceError, match="only change control"):
+        copilot.propose_action(project, "github.create_issues", {"repo": "o/r", "issues": [{"title": "abc"}]},
+                               actor=AGENT, title="t", rationale="r", change_request_id=cr)
+
+
+def test_rebaseline_keeps_unapproved_growth_visible(copilot, project):
+    _seed(copilot)
+    copilot.propose_baseline(project, actor=AGENT, name="Plan", reason="kickoff")
+    copilot.approve(project, "baseline", "B-1", actor=HUMAN)
+    for n in range(300, 305):  # 5 items nobody approved, on a baseline of 30
+        copilot.store.put(work_item(n), actor=SYSTEM)
+    assert copilot.baseline_variance(project)["status"]["rag"] == "amber"
+    cr = _change_request(copilot, project, {"new_target_date": "2026-12-21"})
+    copilot.assess_change_request(project, cr, requested_by=AGENT)
+    copilot.approve(project, "change_request", cr, actor=HUMAN)
+    variance = copilot.baseline_variance(project)
+    assert variance["baseline"]["id"] == "B-2" and variance["status"]["rag"] == "amber"
+    assert len(variance["variance"]["added"]) == 5
+
+
+def test_an_older_baseline_cannot_undo_a_change(copilot, project):
+    _seed(copilot)
+    copilot.propose_baseline(project, actor=AGENT, name="Plan", reason="kickoff")  # B-1, left proposed
+    cr = _change_request(copilot, project, {"new_target_date": "2026-12-21"})
+    copilot.assess_change_request(project, cr, requested_by=AGENT)
+    assert copilot.approve(project, "change_request", cr, actor=HUMAN)["baseline"] == "B-2"
+    with pytest.raises(ValueError, match="proposed before the current baseline B-2"):
+        copilot.approve(project, "baseline", "B-1", actor=HUMAN)
+    assert copilot.current_baseline(project).id == "B-2"
+
+
+def test_rejected_follow_ups_can_be_filed_again(copilot, project):
+    _seed(copilot)
+    cr = _change_request(copilot, project, {"move_out_item_ids": ["o/r#100"], "move_to_milestone": "v2"})
+    copilot.assess_change_request(project, cr, requested_by=AGENT)
+    [first] = copilot.approve(project, "change_request", cr, actor=HUMAN)["actions_waiting_for_approval"]
+    copilot.reject(project, "action_request", first, actor=HUMAN, reason="wrong milestone")
+    assert copilot.store.get(project, "change_request", cr).artifact.status == "approved"
+    with pytest.raises(GovernanceError):
+        copilot.refile_action(project, first, actor=AGENT)
+    again = copilot.refile_action(project, first, actor=HUMAN)["id"]
+    stored = copilot.store.get(project, "action_request", again)
+    assert (stored.actor, stored.artifact.replaces, stored.artifact.change_request_id) == (
+        "system:change-control", first, cr)
+    copilot._github = FakeGitHub().client()
+    copilot.approve(project, "action_request", again, actor=HUMAN)
+    assert copilot.store.get(project, "change_request", cr).artifact.status == "implemented"
+    with pytest.raises(ValueError, match="can't be decided"):
+        copilot.refile_action(project, again, actor=HUMAN)
+
+
+def test_refiling_a_partial_failure_skips_what_was_created(copilot, project):
+    copilot._github = FakeGitHub(fail_on_issue=502).client()
+    filed = copilot.propose_action(project, "github.create_issues", {"repo": "o/r", "issues": [
+        {"title": "Story one"}, {"title": "Story two"}]}, actor=AGENT, title="t", rationale="r")
+    copilot.approve(project, "action_request", filed["id"], actor=HUMAN)
+    again = copilot.refile_action(project, filed["id"], actor=HUMAN)["id"]
+    stored = copilot.store.get(project, "action_request", again)
+    assert [i["title"] for i in stored.artifact.payload["issues"]] == ["Story two"] and stored.actor == HUMAN
+
+
+def test_two_approvers_cannot_both_run_an_action(tmp_path, project):
+    from pm_agent.store import StaleWriteError, Store
+
+    path = tmp_path / "pm.db"
+    first, second = Copilot(Store(path), clock=lambda: NOW), Copilot(Store(path), clock=lambda: NOW)
+    first.setup_project("p", actor=HUMAN, name="P", repos=["o/r"])
+    fake = FakeGitHub()
+    first._github = second._github = fake.client()
+    filed = first.propose_action("p", "github.create_issues", {"repo": "o/r", "issues": [{"title": "abc"}]},
+                                 actor=AGENT, title="t", rationale="r")
+    seen = second.store.get("p", "action_request", filed["id"])  # the second approver has the page open
+    first.approve("p", "action_request", filed["id"], actor=HUMAN)
+    with pytest.raises(ValueError, match="changed since you opened it"):
+        second.approve("p", "action_request", filed["id"], actor=HUMAN, expected_version=seen.version)
+    racing = seen.artifact.model_copy(update={"status": "approved", "decided_by": "other", "decided_at": NOW})
+    with pytest.raises(StaleWriteError):  # even if it read the version just before the first approval landed
+        second.store.put(racing, actor=HUMAN, expected_version=seen.version)
+    assert sum(1 for m, _, _ in fake.requests if m == "POST") == 1
+    first.store.close()
+    second.store.close()
+
+
+def test_network_errors_keep_partial_results_and_never_leave_requests_stuck(copilot, project, monkeypatch):
+    fake = FakeGitHub()
+    original = fake.handler
+
+    def flaky(request):
+        if request.method == "POST" and any(m == "POST" for m, _, _ in fake.requests):
+            raise httpx.ReadTimeout("timed out", request=request)
+        return original(request)
+
+    copilot._github = GitHubClient(token="t", transport=httpx.MockTransport(flaky))
+    filed = copilot.propose_action(project, "github.create_issues", {"repo": "o/r", "issues": [
+        {"title": "Story one"}, {"title": "Story two"}]}, actor=AGENT, title="t", rationale="r")
+    result = copilot.approve(project, "action_request", filed["id"], actor=HUMAN)
+    assert result["status"] == "failed" and [c["number"] for c in result["result"]["created"]] == [501]
+
+    def broken(*args, **kwargs):
+        raise KeyError("number")
+
+    monkeypatch.setattr("pm_agent.actions.execute", broken)
+    filed = copilot.propose_action(project, "github.create_issues", {"repo": "o/r", "issues": [{"title": "abc"}]},
+                                   actor=AGENT, title="t", rationale="r")
+    result = copilot.approve(project, "action_request", filed["id"], actor=HUMAN)
+    assert result["status"] == "failed" and "KeyError" in result["result"]["error"]
+
+
+def test_ids_follow_the_kind_pattern(copilot, project):
+    base = {"title": "t", "description": "d", "reason": "r", "impact": {"scope": "s", "risk": "r"}}
+    for bad in ["urgent", "CR-1/../x", "R-2"]:
+        with pytest.raises(ValueError, match="ids look like CR-3"):
+            copilot.save_artifact(project, "change_request", {**base, "id": bad}, actor=AGENT)
+    with pytest.raises(ValueError, match="one charter"):
+        copilot.save_artifact(project, "charter", {"id": "other", "title": "T", "purpose": "P", "in_scope": ["x"],
+                                                   "objectives": [{"id": "O1", "statement": "s",
+                                                                   "success_criteria": ["c"]}]}, actor=AGENT)
+    assert copilot.save_artifact(project, "change_request", {**base, "id": "CR-7"}, actor=AGENT)["id"] == "CR-7"

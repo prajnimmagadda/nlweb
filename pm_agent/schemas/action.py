@@ -61,7 +61,8 @@ class ActionRequest(Artifact):
     payload: dict[str, Any]
     rationale: str
     requested_by: str | None = None
-    change_request_id: str | None = None
+    change_request_id: str | None = Field(None, description="The approved change request this carries out.")
+    replaces: str | None = Field(None, description="A failed or rejected request this one files again.")
     status: Literal["pending", "approved", "rejected", "executed", "failed"] = "pending"
     decided_by: str | None = None
     decision_note: str | None = None

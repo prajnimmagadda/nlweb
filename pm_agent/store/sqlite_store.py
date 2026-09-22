@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -81,6 +82,10 @@ class StoredArtifact:
         }
 
 
+class StaleWriteError(ValueError):
+    """The artifact changed after the caller read it, so the write was refused."""
+
+
 @dataclass(frozen=True)
 class PutResult:
     version: int
@@ -92,6 +97,7 @@ class Store:
         if path != ":memory:":
             Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
             path = str(Path(path).expanduser())
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(path, check_same_thread=False, timeout=15)
         self._conn.row_factory = sqlite3.Row
         if path != ":memory:":
@@ -112,31 +118,54 @@ class Store:
         actor: str,
         rationale: str | None = None,
         sources: list[str] | tuple[str, ...] = (),
+        expected_version: int | None = None,
     ) -> PutResult:
-        """Validate, check governance rules, and store a new version if content changed."""
+        """Validate, check governance rules, and store a new version if content changed.
+
+        With expected_version, the write only happens if the latest stored version is still that one
+        (0 for a new artifact). The check and the write share one transaction, so two processes
+        deciding the same thing can't both succeed.
+        """
         validate_actor(actor)
         artifact = type(artifact).model_validate(artifact.model_dump())  # re-run validators on mutated copies
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                result = self._put_in_transaction(artifact, actor, rationale, list(sources), expected_version)
+                self._conn.commit()
+            except BaseException:
+                if self._conn.in_transaction:
+                    self._conn.rollback()
+                raise
+        if isinstance(result, GovernanceError):
+            raise result
+        return result
+
+    def _put_in_transaction(self, artifact: Artifact, actor: str, rationale: str | None, sources: list[str],
+                            expected_version: int | None) -> "PutResult | GovernanceError":
         latest = self.get(artifact.project_id, artifact.kind, artifact.id)
+        current = latest.version if latest else 0
+        if expected_version is not None and current != expected_version:
+            raise StaleWriteError(f"{artifact.id} changed since it was read (version {expected_version}, now "
+                                  f"{current}); review it again")
         violations = check_write(artifact, latest.artifact if latest else None, actor)
-        if violations:
-            self._audit(artifact.project_id, actor, "write_denied", artifact.kind, artifact.id, None,
-                        rationale, list(sources), {"violations": violations})
-            raise GovernanceError(violations)
+        if violations:  # the refusal is audited, and committed, before it is raised
+            self._insert_audit(artifact.project_id, actor, "write_denied", artifact.kind, artifact.id, None,
+                               rationale, sources, {"violations": violations})
+            return GovernanceError(violations)
 
         digest = _content_hash(artifact)
         if latest and self._hash_of(artifact.project_id, artifact.kind, artifact.id, latest.version) == digest:
             return PutResult(version=latest.version, changed=False)
 
-        version = latest.version + 1 if latest else 1
-        with self._conn:
-            self._conn.execute(
-                "INSERT INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (artifact.project_id, artifact.kind, artifact.id, version,
-                 artifact.model_dump_json(), digest, actor, rationale,
-                 json.dumps(list(sources)), _now().isoformat()),
-            )
-        self._audit(artifact.project_id, actor, "create" if version == 1 else "update",
-                    artifact.kind, artifact.id, version, rationale, list(sources))
+        version = current + 1
+        self._conn.execute(
+            "INSERT INTO artifact_versions VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (artifact.project_id, artifact.kind, artifact.id, version, artifact.model_dump_json(), digest, actor,
+             rationale, json.dumps(sources), _now().isoformat()),
+        )
+        self._insert_audit(artifact.project_id, actor, "create" if version == 1 else "update",
+                           artifact.kind, artifact.id, version, rationale, sources)
         return PutResult(version=version, changed=True)
 
     def get(self, project_id: str, kind: str, artifact_id: str, version: int | None = None) -> StoredArtifact | None:
@@ -208,7 +237,7 @@ class Store:
         return row["value"] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute("INSERT INTO meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                                (key, value))
 
@@ -224,13 +253,18 @@ class Store:
     def _audit(self, project_id: str | None, actor: str, action: str, kind: str | None, artifact_id: str | None,
                version: int | None, rationale: str | None, sources: list[str],
                detail: dict[str, Any] | None = None) -> None:
-        with self._conn:
-            self._conn.execute(
-                "INSERT INTO audit_log (ts, project_id, actor, action, kind, artifact_id, version, rationale, sources,"
-                " detail) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (_now().isoformat(), project_id, actor, action, kind, artifact_id, version, rationale,
-                 json.dumps(sources), json.dumps(detail) if detail is not None else None),
-            )
+        with self._lock, self._conn:
+            self._insert_audit(project_id, actor, action, kind, artifact_id, version, rationale, sources, detail)
+
+    def _insert_audit(self, project_id: str | None, actor: str, action: str, kind: str | None,
+                      artifact_id: str | None, version: int | None, rationale: str | None, sources: list[str],
+                      detail: dict[str, Any] | None = None) -> None:
+        self._conn.execute(
+            "INSERT INTO audit_log (ts, project_id, actor, action, kind, artifact_id, version, rationale, sources,"
+            " detail) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (_now().isoformat(), project_id, actor, action, kind, artifact_id, version, rationale,
+             json.dumps(sources), json.dumps(detail) if detail is not None else None),
+        )
 
     @staticmethod
     def _row_to_stored(row: sqlite3.Row) -> StoredArtifact:

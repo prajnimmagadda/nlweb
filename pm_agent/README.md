@@ -21,7 +21,8 @@ email is drafts only: nothing is ever sent for you.
 - **You stay accountable.** The agent can propose risks, decisions, change requests,
   baselines and GitHub changes, but only a human can approve them or approve a charter. Only
   a human can change the RAG thresholds, schedules, report recipients, calendar filter or
-  timezone. The store enforces this on every write, and those actions exist only in the CLI
+  timezone. The agent can fill in repos, dates, the release milestone and the board when it
+  creates a project, but after that only you change them (or approve a change request). The store enforces this on every write, and those actions exist only in the CLI
   and the web UI, never in the agent's tools.
 
 ## Setup
@@ -185,7 +186,14 @@ PMBOK's *Assess and Implement Changes* process, made concrete:
 5. **Approval queue.** Anything that writes to GitHub (creating issues, moving milestones) is an
    action request that waits in your inbox. When you approve it, PM Copilot carries it out with
    your `GITHUB_TOKEN` as `system:executor` and records the result, including partial failures.
-   The payload can't change after you decide, and the executor refuses repos outside the project.
+   The payload can't change after you decide, the executor refuses repos outside the project, and
+   if two approvals race (say the CLI and the browser), only the first one runs. A failed or
+   rejected request can be filed again, minus any issues it already created.
+
+A decided change request is frozen: nobody but the executor can touch it, and only to mark it
+implemented once its follow-up actions have run. Re-baselining starts from the previous baseline
+and applies exactly what was approved, so scope that crept in without approval keeps showing as
+growth.
 
 The demo project is a sandbox: approving its GitHub actions only simulates them on the synthetic
 work items, so you can walk through the whole flow without touching GitHub.
@@ -213,6 +221,7 @@ python -m pm_agent approve demo risk R-2 --note "confirmed with design lead"
 python -m pm_agent assess demo CR-1      # compute a change request's impact
 python -m pm_agent approve demo change_request CR-1 --version 3 --note "date matters more"
 python -m pm_agent approve demo action_request AR-2   # carries out the GitHub change
+python -m pm_agent refile demo AR-2      # file a failed or rejected action again
 python -m pm_agent baseline demo         # variance against the approved baseline
 python -m pm_agent baseline demo --propose "Release 1 plan"
 python -m pm_agent reject demo decision D-1 --reason "revisit after the beta"

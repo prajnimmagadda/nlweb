@@ -115,9 +115,10 @@
   function button(label, { variant = "secondary", onclick, type = "button", disabled, title } = {}) {
     return h("button", { class: `btn ${variant}`, type, onclick, disabled, title }, label);
   }
+  // A button marked data-locked stays disabled whatever happens (e.g. approving a stale analysis).
   function setBusy(buttons, busy) {
     for (const b of buttons) {
-      b.disabled = busy;
+      b.disabled = busy || b.dataset.locked === "true";
       b.classList.toggle("busy", busy);
       b.setAttribute("aria-busy", busy ? "true" : "false");
     }
@@ -283,7 +284,21 @@
   let renderSeq = 0;
 
   async function route() {
-    if (!state.token || !state.session) { renderLocked(); return; }
+    if (/(?:^#|&)token=/.test(location.hash)) {  // a fresh launch link pasted into this tab
+      const fresh = takeToken();
+      if (fresh && fresh !== state.token) { state.token = fresh; state.session = null; state.playbooks = null; }
+    }
+    if (!state.token) state.token = tabStore.get("pm-copilot-token");
+    if (!state.token) { renderLocked(); return; }
+    if (!state.session) {
+      try {
+        await loadSession();
+      } catch (e) {
+        if (e.status === 401) { tabStore.remove("pm-copilot-token"); state.token = null; renderLocked(); return; }
+        $main.replaceChildren(errorView(e));
+        return;
+      }
+    }
     const seq = ++renderSeq;
     const hash = location.hash || "#/dashboard";
     let found = null;
@@ -303,7 +318,13 @@
       if (heading && document.activeElement === document.body) heading.focus({ preventScroll: true });
     } catch (error) {
       if (seq !== renderSeq) return;
-      if (error.status === 401) { state.session = null; renderLocked(); return; }
+      if (error.status === 401) {
+        tabStore.remove("pm-copilot-token");
+        state.token = null;
+        state.session = null;
+        renderLocked();
+        return;
+      }
       $main.replaceChildren(errorView(error));
     } finally {
       if (seq === renderSeq) $main.removeAttribute("aria-busy");
@@ -416,7 +437,7 @@
     if (!kind && items.length) {
       kind = items[0].kind;
       id = items[0].id;
-      history.replaceState(null, "", `#/inbox/${kind}/${enc(id)}`);
+      if (/^#\/inbox\/?$/.test(location.hash)) history.replaceState(null, "", `#/inbox/${kind}/${enc(id)}`);
     }
     const header = pageHeader("Inbox", {
       subtitle: items.length
@@ -558,6 +579,9 @@
                 + "name. Rejecting records your reason; nothing changes on GitHub." })
           : decided(a.decided_by, a.decided_at, a.decision_note),
         actionResult(a),
+        a.replaces ? h("p", { class: "hint" }, "Files ", h("a", { href: `#/inbox/action_request/${enc(a.replaces)}` }, a.replaces),
+          " again.") : null,
+        ["failed", "rejected"].includes(a.status) ? refileButton(a) : null,
       ];
     },
     change_request(stored, a) {
@@ -619,6 +643,22 @@
       ];
     },
   };
+
+  function refileButton(a) {
+    const again = button("File it again", {
+      onclick: async () => {
+        setBusy([again], true);
+        try {
+          const out = await api("POST", P(`/items/action_request/${enc(a.id)}/refile`), {});
+          toast(`Filed again as ${out.id}. It waits for your approval.`);
+          refreshCounts();
+          location.hash = `#/inbox/action_request/${enc(out.id)}`;
+        } catch (e) { toast(e.message, true); setBusy([again], false); }
+      },
+    });
+    return h("div", { class: "actions" }, again,
+      h("span", { class: "hint" }, a.status === "failed" ? "Issues it already created are left out." : "Nothing ran the first time."));
+  }
 
   function decided(by, at, note) {
     if (!by) return null;
@@ -779,8 +819,10 @@
       const form = decisionForm({ kind: "change_request", id: a.id, version: stored.version, approveLabel: "Approve change", footnote,
         noteLabel: "Decision note (required to reject)" });
       if (p && !stored.analysis_current) {
-        form.querySelector(".btn.primary").disabled = true;
-        form.querySelector(".btn.primary").title = "Compute the impact of the current proposal first";
+        const approveButton = form.querySelector(".btn.primary");
+        approveButton.dataset.locked = "true";
+        approveButton.disabled = true;
+        approveButton.title = "Compute the impact of the current proposal first";
       }
       decision = card(cardHeader("Your decision"), form);
     } else {
@@ -1089,16 +1131,7 @@
 
   // ----- start ---------------------------------------------------------------
 
-  async function start() {
-    state.token = takeToken();
-    if (!state.token) { renderLocked(); return; }
-    try {
-      await loadSession();
-    } catch (e) {
-      if (e.status === 401) { tabStore.remove("pm-copilot-token"); state.token = null; renderLocked(); return; }
-      $main.replaceChildren(errorView(e));
-      return;
-    }
+  function start() {
     window.addEventListener("hashchange", route);
     route();
   }
