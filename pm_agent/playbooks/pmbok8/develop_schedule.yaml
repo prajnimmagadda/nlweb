@@ -1,0 +1,33 @@
+id: pmbok8.schedule.develop_schedule
+name: Forecast the release
+standard: PMBOK8
+processes: [Develop Schedule, Monitor and Control Schedule]
+domain: schedule
+focus_areas: [planning, monitoring_controlling]
+agent: project
+summary: >
+  Forecast when the release scope will be done from the team's real throughput, compare it with the
+  target date, and propose options when the forecast misses.
+triggers: [manual, "schedule:weekly"]
+inputs: [project_profile, work_item]
+outputs: [decision (proposed), change_request (draft)]
+tools: [sync_github, flow_metrics, forecast_release, agile_evm, project_health, artifact_schema, save_artifact]
+autonomy: L1
+principles: [holistic_view, accountable_leader, focus_on_value]
+quality_checks:
+  - Every date quoted comes from forecast_release, with its percentile named (for example "P85 25 Nov").
+  - The history window and throughput behind the forecast are stated, so the reader can judge it.
+  - If the forecast misses the target, at least two options are given, each with its effect on scope, time and risk.
+  - Nothing is committed on the user's behalf. A new target or scope is saved as a proposed decision or a draft change request.
+instructions: |
+  1. Call sync_github, then flow_metrics to check the data is usable. Flag anything that makes a
+     forecast unreliable: under 4 weeks of history, many items with no start date, or a large unsized
+     epic still in scope.
+  2. Call forecast_release. Use the profile's release milestone unless the user names another. Report
+     the P50 and P85 dates and, if there is a target, how many items are likely done by then.
+  3. If items carry point estimates, call agile_evm and report SPI and projected iterations.
+  4. If P85 is after the target, propose options: cut or defer scope (ask which items are least
+     valuable), move the date, or reduce work in progress to raise throughput. Where you can, quantify
+     each one by re-running forecast_release (for example with a smaller milestone).
+  5. Save the recommended option as a proposed decision (kind="decision") or a draft change request
+     (kind="change_request"). Fill in its impact on scope, schedule, risk and stakeholders.

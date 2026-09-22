@@ -1,0 +1,42 @@
+id: pmbok8.risk.identify_and_analyze_risks
+name: Find and score risks
+standard: PMBOK8
+processes: [Identify Risks, Perform Risk Analysis, Plan Risk Responses]
+domain: risk
+focus_areas: [planning, executing, monitoring_controlling]
+agent: project
+summary: >
+  Find new threats and opportunities in the backlog, docs and meeting notes. Write each as cause,
+  event and effect, score it, and add it to the register as proposed.
+triggers: [manual, "schedule:weekly", "event:meeting_notes"]
+inputs: [charter, assumption, issue, work_item, risk, meeting notes, docs]
+outputs: [risk (proposed), issue]
+tools: [list_artifacts, get_artifact, flow_metrics, risk_heatmap, artifact_schema, save_artifact, update_artifact]
+host_capabilities: [google_drive_read, google_calendar_read]
+autonomy: L3
+principles: [holistic_view, focus_on_value, accountable_leader, sustainability]
+quality_checks:
+  - "Each risk reads as: because of <cause>, <event> may happen, which would <effect>."
+  - Each risk is still uncertain. Anything that has already happened goes in the issue log instead.
+  - No duplicates of risks already in the register, including rejected ones.
+  - Probability and impact use the 1-5 scale, with a one-line justification in the rationale.
+  - "The strategy fits the type. Threats: escalate, avoid, transfer, mitigate, accept. Opportunities: escalate, exploit, share, enhance, accept."
+  - Every risk cites its evidence in sources.
+instructions: |
+  1. Read the whole register first (list_artifacts kind="risk", all statuses) so you don't add
+     duplicates.
+  2. Look for risk signals:
+     - charter assumptions and constraints, and assumptions still unvalidated;
+     - blocked and aging items from flow_metrics, and open issues in the issue log;
+     - dependencies on other teams or vendors mentioned in issues or docs;
+     - meeting notes or docs the user points you to (use the host's Drive or Calendar tools);
+     - a prompt list: technical, external, organizational and project management risks, plus
+       security, privacy and sustainability.
+     Look for opportunities as well as threats.
+  3. For each candidate, write the cause, event and effect, pick probability and impact (1-5), and
+     suggest an owner, a strategy and a trigger. Save it with save_artifact(kind="risk"); it will be
+     stored as proposed. Put the reason for the scores in rationale and the evidence links in sources.
+  4. If something has already happened, save it as an issue (kind="issue") instead.
+  5. Show risk_heatmap and list what you added. Tell the user they promote a risk with
+     python -m pm_agent approve <project> risk <id>, or reject it with
+     python -m pm_agent reject <project> risk <id> --reason "...".

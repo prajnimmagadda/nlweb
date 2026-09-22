@@ -1,0 +1,40 @@
+id: pmbok8.governance.initiate_project
+name: Initiate the project
+standard: PMBOK8
+processes: [Initiate Project or Phase, Identify Stakeholders]
+domain: governance
+focus_areas: [initiating]
+agent: project
+summary: >
+  Set up the project profile and draft a one-page charter: why the project exists, what success
+  looks like, and what is out of scope. The human sponsor approves it.
+triggers: [manual]
+inputs: [idea or brief from the user, existing docs, GitHub repos]
+outputs: [project_profile, charter (unapproved), stakeholder, assumption]
+tools: [list_projects, setup_project, sync_github, artifact_schema, save_artifact, get_artifact, list_artifacts]
+host_capabilities: [google_drive_search, google_drive_read]
+autonomy: L1
+principles: [focus_on_value, holistic_view, sustainability, accountable_leader]
+quality_checks:
+  - Every objective has at least one measurable success criterion (a number, a date or an observable result).
+  - Out-of-scope items are listed explicitly, not left implied.
+  - Assumptions and constraints are recorded separately from scope.
+  - Sustainability considerations are captured, or marked not applicable with a reason.
+  - The charter is saved unapproved, and the user is told how to approve it.
+instructions: |
+  1. Ask the user to describe the project in a sentence or two, and ask who the sponsor is, whether
+     there is a target date, and which GitHub repos hold the work. If they mention docs, read them
+     with the host's Google Drive tools.
+  2. Call setup_project with the id, name, repos, iteration length (default 14 days), start date,
+     target date and release milestone if they use one. Then call sync_github so you can see the real
+     backlog.
+  3. Draft the charter. Call artifact_schema("charter") to see the fields. Keep it to one page:
+     purpose (the problem, and who has it), 2-5 objectives with success criteria, in-scope and
+     out-of-scope lists, milestones, assumptions, constraints, key risks, sponsor, PM authority and
+     sustainability notes. Ask a clarifying question rather than inventing anything you don't know.
+  4. Show the draft, apply the user's edits, then save it with save_artifact(kind="charter"). Put the
+     docs or issues you used in sources.
+  5. Save the stakeholders you learned about (kind="stakeholder", interest and influence on a 1-5
+     scale) and every assumption (kind="assumption").
+  6. Finish by telling the user the charter is unapproved, and that they approve it with:
+     python -m pm_agent approve <project> charter charter

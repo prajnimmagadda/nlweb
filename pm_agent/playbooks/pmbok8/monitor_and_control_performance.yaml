@@ -1,0 +1,35 @@
+id: pmbok8.governance.monitor_and_control_performance
+name: Weekly status
+standard: PMBOK8
+processes: [Monitor and Control Project Performance, Monitor Risks, Monitor and Control Scope]
+domain: governance
+focus_areas: [monitoring_controlling]
+agent: project
+summary: >
+  Produce the weekly status report: computed health, what changed, what is at risk, and which
+  decisions are needed.
+triggers: [manual, "schedule:weekly"]
+inputs: [work_item, risk, issue, decision, change_request, action_item, previous status_report]
+outputs: [status_report]
+tools: [sync_github, project_health, flow_metrics, forecast_release, list_artifacts, get_artifact, check_scope_coverage, draft_status_report]
+host_capabilities: [gmail_create_draft]
+autonomy: L1
+principles: [accountable_leader, holistic_view, focus_on_value]
+quality_checks:
+  - The RAG shown is exactly what project_health returned. Never soften or restate it.
+  - Every amber or red dimension has a cause and a recommended action.
+  - Each decision needed names who decides and by when.
+  - The summary is under 120 words and opens with the overall status.
+  - Bad news comes first, not buried.
+instructions: |
+  1. Call sync_github, then project_health. Keep its overall status and dimensions exactly as they are.
+  2. Gather what changed this period: items completed (list_artifacts kind="work_item" status="done",
+     closed in the period), new or changed risks, open issues, pending decisions and change requests,
+     and overdue action items. Run check_scope_coverage to spot scope creep.
+  3. Compare with the previous status report (list_artifacts kind="status_report") and note what got
+     better or worse.
+  4. Write the narrative: summary, accomplishments, next steps and decisions needed. For each amber or
+     red dimension, explain the cause and recommend an action.
+  5. Call draft_status_report with that narrative. It attaches the computed RAG and metrics itself.
+  6. Offer to put the report in a Gmail draft to the sponsor with the host's tools. Never send it;
+     the user sends it.

@@ -1,0 +1,36 @@
+id: pmbok8.scope.develop_scope_structure
+name: Build the story map
+standard: PMBOK8
+processes: [Define Scope, Develop Scope Structure]
+domain: scope
+focus_areas: [planning]
+agent: project
+summary: >
+  Turn the charter into an epic and story map where every element traces to an objective, and map
+  it onto the existing GitHub issues.
+triggers: [manual, "event:charter_approved"]
+inputs: [charter, work_item, requirements docs]
+outputs: [scope_structure]
+tools: [get_artifact, list_artifacts, sync_github, artifact_schema, save_artifact, check_scope_coverage]
+host_capabilities: [google_drive_read]
+autonomy: L1
+principles: [focus_on_value, embed_quality, holistic_view]
+quality_checks:
+  - "The 100% rule holds: every objective is covered by at least one epic, and every element serves an objective (check_scope_coverage returns empty lists)."
+  - Each story has acceptance criteria a tester could check.
+  - Stories are small enough to finish within one iteration; split any that are not.
+  - Existing GitHub issues are reused through work_item_id, not duplicated.
+instructions: |
+  1. Read the charter (get_artifact kind="charter" id="charter"). If it isn't approved, say so and ask
+     whether to continue from the draft.
+  2. Call sync_github, then list_artifacts(kind="work_item") to see the existing backlog.
+  3. Propose epics (at least one per objective) with stories under them. Reuse existing issues by
+     setting work_item_id to their id (for example "owner/repo#12"). Leave work_item_id empty for new
+     stories.
+  4. Show the map as an indented list with its objective links, then save it with
+     save_artifact(kind="scope_structure").
+  5. Run check_scope_coverage and fix any gaps: objectives with no scope, elements with no objective,
+     or open issues missing from the map. For each missing issue, ask the user whether it belongs;
+     if it adds scope, suggest a change request.
+  6. List the new stories that still need GitHub issues. Creating issues is an L2 action that isn't
+     available yet, so hand the list to the user.

@@ -1,0 +1,38 @@
+id: pmbok8.stakeholders.manage_communications
+name: Meeting notes to actions
+standard: PMBOK8
+processes: [Manage Communications, Manage Project Knowledge, Manage Stakeholder Engagement]
+domain: stakeholders
+focus_areas: [executing]
+agent: project
+summary: >
+  Turn meeting notes or a thread into action items, proposed decisions, risks, issues and lessons,
+  and draft the follow-up message.
+triggers: [manual, "event:meeting_ended"]
+inputs: [meeting notes or transcript, calendar event, stakeholder]
+outputs: [action_item, decision (proposed), risk (proposed), issue, lesson]
+tools: [list_artifacts, artifact_schema, save_artifact, update_artifact]
+host_capabilities: [google_calendar_read, google_drive_read, gmail_create_draft]
+autonomy: L3
+principles: [empowered_culture, accountable_leader, embed_quality]
+quality_checks:
+  - Every action item has an owner and a due date, or is flagged as missing them.
+  - Decisions are saved as proposed, with the context and the alternatives discussed.
+  - Nothing is attributed to a person unless the notes support it.
+  - Action items completed in the meeting are marked done, not duplicated.
+  - The follow-up is short, lists actions by owner, and is left as a draft.
+instructions: |
+  1. Get the notes. Ask the user to paste them, or find the meeting with the host's Calendar tools and
+     the notes doc with the Drive tools.
+  2. Read open action items and proposed decisions (list_artifacts) so you update them rather than
+     duplicate them.
+  3. Extract:
+     - action items (kind="action_item"), with source set to the meeting title and date;
+     - decisions made or requested (kind="decision", saved as proposed, with context and alternatives);
+     - new risks (kind="risk") and problems that have already happened (kind="issue");
+     - lessons worth keeping (kind="lesson").
+     Mark finished action items done with update_artifact.
+  4. Summarize what you stored. List anything ambiguous (for example an action with no owner) as a
+     question for the user.
+  5. Draft a follow-up message: decisions first, then actions grouped by owner, then open questions.
+     Offer to put it in a Gmail draft with the host's tools. Don't send it.
