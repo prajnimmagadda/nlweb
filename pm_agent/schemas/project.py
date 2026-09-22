@@ -128,6 +128,8 @@ class ProjectProfile(Artifact):
         default_factory=list, description="Who status-report email drafts are addressed to.")
     calendar_query: str | None = Field(
         None, description="Only calendar events matching this text are visible to the copilot.")
+    sandbox: bool = Field(False, description="Demo data: GitHub sync is off and approved GitHub actions are "
+                                             "simulated, never sent.")
 
     @field_validator("repos")
     @classmethod

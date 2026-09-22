@@ -293,3 +293,26 @@ def test_missing_github_token_fails_cleanly(store, project):
                                    actor=AGENT, title="t", rationale="r")
     result = copilot.approve(project, "action_request", filed["id"], actor=HUMAN)
     assert result["status"] == "failed" and "401" in result["result"]["error"]
+
+
+def test_sandbox_projects_simulate_github_actions(copilot, project):
+    profile = copilot.profile(project)
+    copilot.store.put(profile.model_copy(update={"sandbox": True}), actor=HUMAN)
+    with pytest.raises(GovernanceError, match="sandbox"):
+        copilot.store.put(copilot.profile(project).model_copy(update={"sandbox": False}), actor=AGENT)
+    fake = FakeGitHub()
+    copilot._github = fake.client()
+    filed = copilot.propose_action(project, "github.create_issues", {"repo": "o/r", "issues": [{"title": "abc"}]},
+                                   actor=AGENT, title="t", rationale="r")
+    result = copilot.approve(project, "action_request", filed["id"], actor=HUMAN)
+    assert result["status"] == "executed" and result["result"]["simulated"] is True and fake.requests == []
+    assert result["result"]["created"][0]["number"] == 1
+    assert copilot.store.get(project, "work_item", "o/r#1").actor == "system:sandbox"
+    copilot.store.put(work_item(7), actor=SYSTEM)
+    moved = copilot.propose_action(project, "github.set_milestone",
+                                   {"repo": "o/r", "issue_numbers": [7], "milestone": "v2"},
+                                   actor=AGENT, title="t", rationale="r")
+    copilot.approve(project, "action_request", moved["id"], actor=HUMAN)
+    assert copilot.store.get(project, "work_item", "o/r#7").artifact.milestone == "v2" and fake.requests == []
+    with pytest.raises(ValueError, match="sandbox"):
+        copilot.sync_github(project)

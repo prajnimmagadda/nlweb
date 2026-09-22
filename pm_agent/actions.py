@@ -25,6 +25,19 @@ def _milestone_number(github: GitHubClient, repo: str, title: str | None,
     return cache[repo][title]
 
 
+def simulate(request: ActionRequest) -> dict[str, Any]:
+    """What execute() would report, for sandbox (demo) projects. Nothing is sent anywhere."""
+    payload = request.typed_payload()
+    note = "Sandbox project: nothing was sent to GitHub."
+    if isinstance(payload, CreateIssuesPayload):
+        return {"simulated": True, "note": note,
+                "created": [{"number": None, "url": None, "title": issue.title} for issue in payload.issues]}
+    if isinstance(payload, SetMilestonePayload):
+        return {"simulated": True, "note": note, "updated": list(payload.issue_numbers),
+                "milestone": payload.milestone}
+    raise ActionError(f"no executor for {request.action}", {})
+
+
 def execute(request: ActionRequest, github: GitHubClient, approved_by: str) -> dict[str, Any]:
     payload = request.typed_payload()
     footer = f"\n\n---\nCreated by PM Copilot ({request.id}) after approval by {approved_by}."

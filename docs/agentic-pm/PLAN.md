@@ -1,6 +1,6 @@
 # Agentic Project, Program & Product Manager — Plan
 
-Status: **Decisions made; Phases 0 and 1b built** (see [`pm_agent/`](../../pm_agent/README.md)) ·
+Status: **Decisions made; Phases 0, 1b and 2 built, plus a web UI** (see [`pm_agent/`](../../pm_agent/README.md)) ·
 Branch: `claude/ai-agentic-manager-pmbok-hfmfis`
 
 This plan describes an AI agent system that acts as a **Project Manager**, **Program
@@ -37,10 +37,11 @@ decisions taken and how they changed the plan.
 
 | Question | Decision | What it changes |
 |---|---|---|
-| Who is it for? | **Personal copilot** | No multi-tenancy or auth. **SQLite** instead of Postgres. The CLI is the human side. |
+| Who is it for? | **Personal copilot** | No multi-tenancy or auth. **SQLite** instead of Postgres. The CLI and a local web UI are the human side. |
 | Which tools? | **GitHub + Google Workspace** | GitHub issues are the tracker: milestones for release scope, labels or a project board for state, labels for points. Interactively, Google Drive, Calendar and Gmail come through the MCP host's connectors. For unattended runs (Phase 1b) the copilot has its own read-only Calendar access and Gmail drafts, with an optional Drive scope for meeting notes. |
 | Where does the code live? | **This repo** | New top-level `pm_agent/` package next to NLWeb's `code/`. NLWeb retrieval can be plugged in later for lessons learned. |
 | Which kind of project? | **Agile software** | Flow metrics and **Monte Carlo throughput forecasting** are the primary schedule tools. **Agile EVM** (points-based SPI) replaces classic EVM; classic EVM is kept for when cost data exists. CPM is deferred. |
+| Human interface | **Local web UI, designed in Figma** (decided later on 22 Sep) | The [Figma file](https://www.figma.com/design/8paWh1GTv4jpS9msPqWF3A) holds the tokens (light and dark), components and five screens. `python -m pm_agent ui` implements them as a single-page app served on 127.0.0.1 with a per-launch token; it acts as the human, exactly like the CLI. |
 | Model provider | **Claude** (decided later on 22 Sep) | Unattended runs use the Anthropic API with `claude-opus-5`, adaptive thinking and `high` effort, all configurable. Server-side refusal fallback (`fallbacks: "default"`) is on, so a classifier decline is retried on the recommended fallback model instead of failing the run. |
 
 **One architectural consequence:** for a personal copilot, the fastest route is an **MCP
@@ -73,6 +74,23 @@ tools unattended, for scheduled rituals such as the Monday status report.
 - **Scenario evals.** Weekly status, risk discovery, and meeting notes with a planted prompt
   injection. Deterministic checks read the store and audit log. The harness is tested
   offline; the live evals have not been run yet (no API key in the build environment).
+
+**Built in Phase 2** (111 tests in total):
+- **Baselines and variance.** A computed snapshot of release scope, target and forecast that
+  a human approves. Net scope growth against it is a new RAG dimension (amber at 10%, red at
+  20%, human-set), and P85 drift and target shift are reported.
+- **Change control.** Change requests carry a machine-readable proposal. The impact engine
+  computes before/after snapshots with the same random stream, and only it may write the
+  analysis. Approval needs an analysis of the current proposal; it then applies the new target,
+  re-baselines, and files the milestone moves. A new *Assess a change* playbook drives this.
+- **Approval queue (L2).** Agents file GitHub writes (create issues, move milestones) as
+  pending action requests. A human approves; `system:executor` carries them out and records the
+  result, including partial failures. Payloads freeze once decided, and repos outside the
+  project are refused. Demo projects are sandboxes where actions are simulated.
+- **Inbox.** One list of everything waiting for a human, with stale-version protection on
+  every decision (`--version` in the CLI, automatic in the UI).
+- **Web UI.** Dashboard, inbox, change requests, run a playbook, schedules and settings,
+  implemented from the Figma design and checked with Playwright screenshots in light and dark.
 
 ---
 
@@ -429,7 +447,7 @@ Durations are rough and assume 1–2 developers.
 | **0. Foundations** (1–2 wks) — ✅ **done** | Artifact schemas; SQLite store and audit log; governance rules; engines; read-only GitHub sync; MCP server + CLI; a synthetic agile demo project | Agent can read and write artifacts with provenance; engine unit tests pass |
 | **1a. Project agent MVP** (3–4 wks) — 🟡 **playbooks built, not yet used on a real project** | Playbooks: **Initiate** (charter + tailoring), **Develop Scope Structure**, **Develop Schedule** (Monte Carlo + agile EVM), **Identify Risks / Perform Risk Analysis**, **Monitor and Control Project Performance** (weekly status), **Manage Communications** (meeting notes → actions, decisions, risks). Tracker read-only; mail as drafts only via the host. Interface: MCP server + CLI. | Used on one real project for 2 weeks. Measure hours saved per week, share of drafts accepted, and risk recall vs the human PM. |
 | **1b. Unattended runs** (1–2 wks) — ✅ **built; live evals not yet run** | GitHub Projects Status field (GraphQL); a Claude tool-use loop for scheduled rituals; Gmail drafts and Calendar read via Google APIs; a scenario eval harness | Monday status draft is waiting in Gmail without you opening Claude |
-| **2. Control loop and governance** (3–4 wks) | Change control with impact analysis and an approval queue; baselines and variance; autonomy levels; EVM on real actuals; comms plan drives the scheduler; quality checks | A change request goes from detection to approved baseline update with a full audit trail |
+| **2. Control loop and governance** (3–4 wks) — ✅ **change control, baselines, approval queue and web UI built** | Change control with impact analysis and an approval queue; baselines and variance; autonomy levels; EVM on real actuals; comms plan drives the scheduler; quality checks | A change request goes from detection to approved baseline update with a full audit trail. *Met on the demo project; still to do: EVM on real actuals and a comms plan that drives the scheduler.* |
 | **3. Program agent** (≈4 wks) | Multi-project model, dependency map, benefits register and tracking, steering packs, resource arbitration, program risk roll-up | A slip in one project shows up correctly as impact on another project and on benefits |
 | **4. Product agent** (≈4 wks) | Discovery synthesis, outcome roadmap, prioritization engine, PRD → requirements hand-off, launch checklists, outcome metrics feeding benefits | Roadmap items trace to benefits; prioritization is reproducible |
 | **5. Hardening and scale** | Remaining processes (sourcing, closure, levelling); SSO/RBAC; multi-tenancy; portfolio view (PMI's portfolio standard); eval-driven tuning | Production readiness review |

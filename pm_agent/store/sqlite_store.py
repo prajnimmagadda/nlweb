@@ -92,8 +92,11 @@ class Store:
         if path != ":memory:":
             Path(path).expanduser().parent.mkdir(parents=True, exist_ok=True)
             path = str(Path(path).expanduser())
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._conn = sqlite3.connect(path, check_same_thread=False, timeout=15)
         self._conn.row_factory = sqlite3.Row
+        if path != ":memory:":
+            # The web UI and a background run can each hold a connection; WAL lets reads continue during writes.
+            self._conn.execute("PRAGMA journal_mode=WAL")
         with self._conn:
             self._conn.executescript(_SCHEMA)
 

@@ -154,7 +154,7 @@ def _label_names(issue: dict[str, Any]) -> list[str]:
     return [label["name"] if isinstance(label, dict) else str(label) for label in issue.get("labels", [])]
 
 
-def _estimate(labels: list[str], prefixes: list[str]) -> float | None:
+def estimate_from_labels(labels: list[str], prefixes: list[str]) -> float | None:
     for label in labels:
         for prefix in prefixes:
             if label.lower().startswith(prefix.lower()):
@@ -231,7 +231,7 @@ def issue_to_work_item(project_id: str, repo: str, issue: dict[str, Any], mappin
         labels=labels,
         assignees=[a["login"] for a in issue.get("assignees") or []],
         milestone=milestone.get("title") if isinstance(milestone, dict) else None,
-        estimate=_estimate(labels, mapping.estimate_label_prefixes),
+        estimate=estimate_from_labels(labels, mapping.estimate_label_prefixes),
         created_at=_parse_time(issue["created_at"]),
         started_at=started_at,
         closed_at=closed_at,

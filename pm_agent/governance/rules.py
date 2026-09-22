@@ -75,6 +75,7 @@ _HUMAN_ONLY_PROFILE_FIELDS = {
     "timezone": "the schedule timezone",
     "report_recipients": "report recipients",
     "calendar_query": "the calendar filter",
+    "sandbox": "sandbox mode",
 }
 
 

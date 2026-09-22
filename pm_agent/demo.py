@@ -29,6 +29,9 @@ def seed_demo(copilot: Copilot, *, actor: str, project_id: str = "demo", seed: i
                           iteration_days=14, start_date=today - timedelta(days=84),
                           target_date=today + timedelta(days=42), release_milestone="v1",
                           rationale="demo project")
+    profile = copilot.profile(project_id)
+    copilot.store.put(profile.model_copy(update={"sandbox": True}), actor=actor,
+                      rationale="demo data: never sync or write to GitHub")
 
     def put(number: int, state: str, *, created: float, started: float | None = None,
             closed: float | None = None, milestone: str = "v1", item_type: str = "story",

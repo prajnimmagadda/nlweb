@@ -200,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
 
     sub.add_parser("serve", help="run the MCP server on stdio")
+
+    p = sub.add_parser("ui", help="open the web UI on this machine (127.0.0.1 only)")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--no-browser", action="store_true", help="print the link instead of opening a browser")
     return parser
 
 
@@ -313,6 +317,11 @@ def main(argv: list[str] | None = None) -> int:
         from pm_agent.mcp_server import main as serve
 
         serve(args.db)
+        return 0
+    if args.command == "ui":
+        from pm_agent.web.app import serve as serve_ui
+
+        serve_ui(args.db, port=args.port, open_browser=not args.no_browser)
         return 0
     store = Store(args.db)
     try:

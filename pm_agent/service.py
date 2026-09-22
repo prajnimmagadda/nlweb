@@ -21,7 +21,7 @@ from pm_agent.engines.flow import FlowMetrics, compute_flow
 from pm_agent.engines.forecast import ForecastError, forecast_how_many, forecast_when
 from pm_agent.governance import GovernanceError, is_human, is_system, validate_actor
 from pm_agent.governance.rules import EXECUTOR_ACTOR, IMPACT_ACTOR
-from pm_agent.integrations.github import GitHubClient, GitHubError, sync_project
+from pm_agent.integrations.github import GitHubClient, GitHubError, estimate_from_labels, sync_project
 from pm_agent.integrations.google import GOOGLE_DOC, GoogleClient, GoogleError
 from pm_agent.playbooks import resolve_playbook
 from pm_agent.reports import render_html, render_text, subject
@@ -44,6 +44,7 @@ from pm_agent.store import Store
 
 REPORTING_ACTOR = "system:reporting"
 CHANGE_CONTROL_ACTOR = "system:change-control"
+SANDBOX_ACTOR = "system:sandbox"
 OPEN_STATES = ("todo", "in_progress", "blocked")
 
 # Artifacts that have exactly one instance per project use a fixed id.
@@ -60,6 +61,11 @@ _SYSTEM_KINDS = {
     "work_item": "work items mirror GitHub and are written by sync_github",
     "baseline": "baselines are computed from the tracker; ask for one with propose_baseline",
     "action_request": "action requests are filed with propose_github_issues or propose_milestone_move",
+}
+
+_EDITABLE_PROFILE_FIELDS = {
+    "name", "repos", "iteration_days", "start_date", "target_date", "release_milestone", "github_project",
+    "timezone", "report_recipients", "calendar_query",
 }
 
 # What each kind needs from you, for the inbox.
@@ -146,6 +152,22 @@ class Copilot:
         result = self.store.put(profile, actor=actor, rationale=rationale)
         return {"version": result.version, "changed": result.changed, "profile": profile.model_dump(mode="json")}
 
+    def update_profile(self, project_id: str, changes: dict[str, Any], *, actor: str,
+                       rationale: str | None = None) -> dict[str, Any]:
+        """Set profile fields, including clearing optional ones with None. For the settings screen."""
+        unknown = set(changes) - _EDITABLE_PROFILE_FIELDS
+        if unknown:
+            raise ValueError(f"these profile fields can't be edited here: {', '.join(sorted(unknown))}")
+        profile = ProjectProfile.model_validate({**self.profile(project_id).model_dump(), **changes})
+        result = self.store.put(profile, actor=actor, rationale=rationale)
+        return {"version": result.version, "changed": result.changed, "profile": profile.model_dump(mode="json")}
+
+    def last_synced(self, project_id: str) -> str | None:
+        """When GitHub was last synced for this project (the oldest repo's time), or None."""
+        profile = self.profile(project_id)
+        times = [self.store.get_meta(f"github_sync:{project_id}:{repo}") for repo in profile.repos]
+        return min(times) if times and all(times) else None
+
     def set_thresholds(self, project_id: str, changes: dict[str, Any], *, actor: str,
                        rationale: str | None = None) -> dict[str, Any]:
         self._require_human(actor, "change RAG thresholds")
@@ -184,6 +206,8 @@ class Copilot:
 
     def sync_github(self, project_id: str) -> dict[str, Any]:
         profile = self.profile(project_id)
+        if profile.sandbox:
+            raise ValueError("this is a sandbox (demo) project: its work items are synthetic and it never syncs")
         if not profile.repos:
             raise ValueError("the project has no repos configured")
         if self._github is None:
@@ -651,13 +675,16 @@ class Copilot:
         approved = request.model_copy(update={"status": "approved", "decided_by": name, "decision_note": note,
                                               "decided_at": self._clock()})
         self.store.put(approved, actor=actor, rationale=note or "approved")
-        repo = request.typed_payload().repo
+        repo, profile = request.typed_payload().repo, self.profile(project_id)
         try:
-            if repo not in self.profile(project_id).repos:
+            if repo not in profile.repos:
                 raise GovernanceError([f"{repo} is no longer one of this project's repos"])
-            if self._github is None:
-                self._github = GitHubClient()
-            outcome, status = actions.execute(request, self._github, approved_by=name), "executed"
+            if profile.sandbox:
+                outcome, status = self._simulate_action(request, profile), "executed"
+            else:
+                if self._github is None:
+                    self._github = GitHubClient()
+                outcome, status = actions.execute(request, self._github, approved_by=name), "executed"
         except actions.ActionError as exc:
             outcome, status = {"error": str(exc), **exc.partial}, "failed"
         except (GitHubError, GovernanceError, httpx.HTTPError) as exc:
@@ -667,6 +694,30 @@ class Copilot:
         if status == "executed" and request.change_request_id:
             self._mark_change_implemented(project_id, request.change_request_id)
         return {"id": request.id, "version": result.version, "approved": True, "status": status, "result": outcome}
+
+    def _simulate_action(self, request: ActionRequest, profile: ProjectProfile) -> dict[str, Any]:
+        """Sandbox projects: apply the action to the synthetic work items instead of GitHub."""
+        outcome = actions.simulate(request)
+        payload, now = request.typed_payload(), self._clock()
+        items = {i.id: i for i in self.work_items(profile.id)}
+        if "created" in outcome:
+            numbers = [int(i.rsplit("#", 1)[1]) for i in items if i.startswith(f"{payload.repo}#")]
+            next_number = max(numbers, default=0) + 1
+            for offset, (issue, created) in enumerate(zip(payload.issues, outcome["created"], strict=True)):
+                number = next_number + offset
+                self.store.put(WorkItem(
+                    id=f"{payload.repo}#{number}", project_id=profile.id, title=issue.title, state="todo",
+                    labels=issue.labels, milestone=issue.milestone, created_at=now,
+                    estimate=estimate_from_labels(issue.labels, profile.status_mapping.estimate_label_prefixes),
+                ), actor=SANDBOX_ACTOR, rationale=f"simulated {request.id}")
+                created["number"] = number
+        else:
+            for number in payload.issue_numbers:
+                item = items.get(f"{payload.repo}#{number}")
+                if item is not None:
+                    self.store.put(item.model_copy(update={"milestone": payload.milestone}), actor=SANDBOX_ACTOR,
+                                   rationale=f"simulated {request.id}")
+        return outcome
 
     def _mark_change_implemented(self, project_id: str, change_request_id: str) -> None:
         stored = self.store.get(project_id, "change_request", change_request_id)
