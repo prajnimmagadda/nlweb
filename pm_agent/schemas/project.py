@@ -3,12 +3,17 @@
 import re
 from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator, model_validator
 
 from pm_agent.schemas.common import Artifact, Engagement, Model
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_PROJECT_RE = re.compile(r"^[A-Za-z0-9_.-]+/\d+$")
+_EMAIL_RE = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 DEFAULT_PLAYBOOKS = [
     "pmbok8.governance.initiate_project",
@@ -58,6 +63,39 @@ class StatusMapping(Model):
         default_factory=lambda: ["points:", "sp:", "estimate:"],
         description="A label such as 'points:3' sets the item's estimate to 3.",
     )
+    project_status_field: str = Field("Status", description="Single-select field read from the GitHub project.")
+    project_status_states: dict[str, Literal["todo", "in_progress", "blocked", "done"]] = Field(
+        default_factory=lambda: {
+            "todo": "todo", "backlog": "todo", "ready": "todo", "new": "todo",
+            "in progress": "in_progress", "in review": "in_progress", "doing": "in_progress",
+            "blocked": "blocked", "done": "done",
+        },
+        description="Project status option (case-insensitive) -> work-item state. Unlisted options are ignored.",
+    )
+
+
+class Schedule(Model):
+    """When a playbook runs unattended. Only a human may add or change schedules."""
+
+    playbook: str = Field(description="Playbook prompt name, e.g. 'monitor_and_control_performance'.")
+    cadence: Literal["daily", "weekdays", "weekly"]
+    day: Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"] | None = Field(
+        None, description="Required for weekly schedules.")
+    time: str = Field("08:00", description="Local time, HH:MM, in the profile's timezone.")
+    enabled: bool = True
+
+    @field_validator("time")
+    @classmethod
+    def _time_format(cls, value: str) -> str:
+        if not _TIME_RE.match(value):
+            raise ValueError(f"time must be HH:MM (24h), got {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _weekly_needs_day(self) -> "Schedule":
+        if (self.cadence == "weekly") != (self.day is not None):
+            raise ValueError("weekly schedules need a day, and only weekly schedules take one")
+        return self
 
 
 class ProjectProfile(Artifact):
@@ -78,6 +116,14 @@ class ProjectProfile(Artifact):
     active_playbooks: list[str] = Field(default_factory=lambda: list(DEFAULT_PLAYBOOKS))
     thresholds: RagThresholds = Field(default_factory=RagThresholds)
     status_mapping: StatusMapping = Field(default_factory=StatusMapping)
+    github_project: str | None = Field(
+        None, description="GitHub project (v2) whose Status field drives work-item state, as 'owner/number'.")
+    timezone: str = Field("UTC", description="IANA timezone for schedules, e.g. 'Asia/Kolkata'.")
+    schedules: list[Schedule] = Field(default_factory=list)
+    report_recipients: list[str] = Field(
+        default_factory=list, description="Who status-report email drafts are addressed to.")
+    calendar_query: str | None = Field(
+        None, description="Only calendar events matching this text are visible to the copilot.")
 
     @field_validator("repos")
     @classmethod
@@ -86,6 +132,30 @@ class ProjectProfile(Artifact):
             if not _REPO_RE.match(repo):
                 raise ValueError(f"repo must look like 'owner/name', got {repo!r}")
         return repos
+
+    @field_validator("github_project")
+    @classmethod
+    def _project_format(cls, value: str | None) -> str | None:
+        if value is not None and not _PROJECT_RE.match(value):
+            raise ValueError(f"github_project must look like 'owner/number', got {value!r}")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown timezone {value!r}") from None
+        return value
+
+    @field_validator("report_recipients")
+    @classmethod
+    def _emails(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if not _EMAIL_RE.match(value):
+                raise ValueError(f"not an email address: {value!r}")
+        return values
 
     @model_validator(mode="after")
     def _id_is_project(self) -> "ProjectProfile":

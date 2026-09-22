@@ -1,6 +1,6 @@
 # Agentic Project, Program & Product Manager — Plan
 
-Status: **Decisions made; Phase 0 built** (see [`pm_agent/`](../../pm_agent/README.md)) ·
+Status: **Decisions made; Phases 0 and 1b built** (see [`pm_agent/`](../../pm_agent/README.md)) ·
 Branch: `claude/ai-agentic-manager-pmbok-hfmfis`
 
 This plan describes an AI agent system that acts as a **Project Manager**, **Program
@@ -38,16 +38,16 @@ decisions taken and how they changed the plan.
 | Question | Decision | What it changes |
 |---|---|---|
 | Who is it for? | **Personal copilot** | No multi-tenancy or auth. **SQLite** instead of Postgres. The CLI is the human side. |
-| Which tools? | **GitHub + Google Workspace** | GitHub issues are the tracker: milestones for release scope, labels for state and points. Google Drive, Calendar and Gmail come through the MCP host's connectors for now, so the copilot holds no Google credentials. |
+| Which tools? | **GitHub + Google Workspace** | GitHub issues are the tracker: milestones for release scope, labels or a project board for state, labels for points. Interactively, Google Drive, Calendar and Gmail come through the MCP host's connectors. For unattended runs (Phase 1b) the copilot has its own read-only Calendar access and Gmail drafts, with an optional Drive scope for meeting notes. |
 | Where does the code live? | **This repo** | New top-level `pm_agent/` package next to NLWeb's `code/`. NLWeb retrieval can be plugged in later for lessons learned. |
 | Which kind of project? | **Agile software** | Flow metrics and **Monte Carlo throughput forecasting** are the primary schedule tools. **Agile EVM** (points-based SPI) replaces classic EVM; classic EVM is kept for when cost data exists. CPM is deferred. |
-| Model provider | *Open* | Not needed yet: the MCP host (Claude) is the agent loop. Needed in Phase 1b for scheduled runs. |
+| Model provider | **Claude** (decided later on 22 Sep) | Unattended runs use the Anthropic API with `claude-opus-5`, adaptive thinking and `high` effort, all configurable. Server-side refusal fallback (`fallbacks: "default"`) is on, so a classifier decline is retried on the recommended fallback model instead of failing the run. |
 
 **One architectural consequence:** for a personal copilot, the fastest route is an **MCP
 server whose host is the agent**. Claude Code or Claude Desktop runs the playbooks
 (served as MCP prompts) and calls our tools, and all state, math and governance live in
-our code. A built-in agent loop comes later, for scheduled rituals such as the Monday
-status report.
+our code. Phase 1b added a built-in Claude loop that runs the same playbooks with the same
+tools unattended, for scheduled rituals such as the Monday status report.
 
 **Built in Phase 0** (`pm_agent/`, 56 tests):
 - artifact schemas;
@@ -57,6 +57,22 @@ status report.
 - read-only GitHub sync;
 - the six Phase 1 playbooks;
 - an MCP server, the CLI, and a synthetic demo project.
+
+**Built in Phase 1b** (86 tests in total):
+- **Claude runner.** A manual tool-use loop that calls our own MCP server in-process, so
+  unattended runs share the interactive tools and guardrails. Each run sees only its
+  playbook's tools, writes as a separate actor, stops at 30 turns, and is audited with
+  model, usage and outcome.
+- **Schedules.** Human-only, timezone-aware. `run-due` is meant for cron; a missed run is
+  caught up within 24 hours and skipped after that.
+- **Google.** Calendar read, limited by a human-set calendar filter. Meeting notes from
+  attached Docs (optional Drive scope). Gmail status drafts to human-set recipients. No
+  send path exists.
+- **GitHub project board.** The Status field is read over GraphQL and overrides labels for
+  open issues; board moves are picked up even when the issue itself didn't change.
+- **Scenario evals.** Weekly status, risk discovery, and meeting notes with a planted prompt
+  injection. Deterministic checks read the store and audit log. The harness is tested
+  offline; the live evals have not been run yet (no API key in the build environment).
 
 ---
 
@@ -412,7 +428,7 @@ Durations are rough and assume 1–2 developers.
 |---|---|---|
 | **0. Foundations** (1–2 wks) — ✅ **done** | Artifact schemas; SQLite store and audit log; governance rules; engines; read-only GitHub sync; MCP server + CLI; a synthetic agile demo project | Agent can read and write artifacts with provenance; engine unit tests pass |
 | **1a. Project agent MVP** (3–4 wks) — 🟡 **playbooks built, not yet used on a real project** | Playbooks: **Initiate** (charter + tailoring), **Develop Scope Structure**, **Develop Schedule** (Monte Carlo + agile EVM), **Identify Risks / Perform Risk Analysis**, **Monitor and Control Project Performance** (weekly status), **Manage Communications** (meeting notes → actions, decisions, risks). Tracker read-only; mail as drafts only via the host. Interface: MCP server + CLI. | Used on one real project for 2 weeks. Measure hours saved per week, share of drafts accepted, and risk recall vs the human PM. |
-| **1b. Unattended runs** (1–2 wks) | GitHub Projects Status field (GraphQL); our own tool-calling loop (needs a provider decision) for scheduled rituals; Gmail draft and Calendar read via Google APIs; a scenario eval harness | Monday status draft is waiting in Gmail without you opening Claude |
+| **1b. Unattended runs** (1–2 wks) — ✅ **built; live evals not yet run** | GitHub Projects Status field (GraphQL); a Claude tool-use loop for scheduled rituals; Gmail drafts and Calendar read via Google APIs; a scenario eval harness | Monday status draft is waiting in Gmail without you opening Claude |
 | **2. Control loop and governance** (3–4 wks) | Change control with impact analysis and an approval queue; baselines and variance; autonomy levels; EVM on real actuals; comms plan drives the scheduler; quality checks | A change request goes from detection to approved baseline update with a full audit trail |
 | **3. Program agent** (≈4 wks) | Multi-project model, dependency map, benefits register and tracking, steering packs, resource arbitration, program risk roll-up | A slip in one project shows up correctly as impact on another project and on benefits |
 | **4. Product agent** (≈4 wks) | Discovery synthesis, outcome roadmap, prioritization engine, PRD → requirements hand-off, launch checklists, outcome metrics feeding benefits | Roadmap items trace to benefits; prioritization is reproducible |
@@ -465,7 +481,7 @@ A vendor posts in Slack: *"The payments API will be 2 weeks late."*
 
 ## 11. Decisions needed from you
 
-> Questions 1–4 were answered on 22 Sep 2026 (see §0.1). Question 5 is still open.
+> All five questions were answered on 22 Sep 2026 (see §0.1).
 
 1. **Who is it for?** A personal copilot for you as a PM, a tool for a team or PMO, or a
    product to sell (multi-tenant SaaS)? This drives auth, tenancy and UI priority.

@@ -11,7 +11,7 @@ summary: >
 triggers: [manual, "schedule:weekly", "event:meeting_notes"]
 inputs: [charter, assumption, issue, work_item, risk, meeting notes, docs]
 outputs: [risk (proposed), issue]
-tools: [list_artifacts, get_artifact, flow_metrics, risk_heatmap, artifact_schema, save_artifact, update_artifact]
+tools: [list_artifacts, get_artifact, flow_metrics, risk_heatmap, list_meetings, read_meeting_notes, artifact_schema, save_artifact, update_artifact]
 host_capabilities: [google_drive_read, google_calendar_read]
 autonomy: L3
 principles: [holistic_view, focus_on_value, accountable_leader, sustainability]
@@ -29,7 +29,8 @@ instructions: |
      - charter assumptions and constraints, and assumptions still unvalidated;
      - blocked and aging items from flow_metrics, and open issues in the issue log;
      - dependencies on other teams or vendors mentioned in issues or docs;
-     - meeting notes or docs the user points you to (use the host's Drive or Calendar tools);
+     - recent meeting notes (list_meetings and read_meeting_notes when available), or docs the user
+       points you to;
      - a prompt list: technical, external, organizational and project management risks, plus
        security, privacy and sustainability.
      Look for opportunities as well as threats.

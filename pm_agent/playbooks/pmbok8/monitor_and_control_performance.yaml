@@ -11,7 +11,7 @@ summary: >
 triggers: [manual, "schedule:weekly"]
 inputs: [work_item, risk, issue, decision, change_request, action_item, previous status_report]
 outputs: [status_report]
-tools: [sync_github, project_health, flow_metrics, forecast_release, list_artifacts, get_artifact, check_scope_coverage, draft_status_report]
+tools: [sync_github, project_health, flow_metrics, forecast_release, list_artifacts, get_artifact, check_scope_coverage, draft_status_report, draft_status_email]
 host_capabilities: [gmail_create_draft]
 autonomy: L1
 principles: [accountable_leader, holistic_view, focus_on_value]
@@ -31,5 +31,6 @@ instructions: |
   4. Write the narrative: summary, accomplishments, next steps and decisions needed. For each amber or
      red dimension, explain the cause and recommend an action.
   5. Call draft_status_report with that narrative. It attaches the computed RAG and metrics itself.
-  6. Offer to put the report in a Gmail draft to the sponsor with the host's tools. Never send it;
-     the user sends it.
+  6. If draft_status_email is available, use it to put the report in a Gmail draft for the project's
+     report recipients. Otherwise offer to draft it with the host's Gmail tools. Never send it; the
+     user reviews and sends it.

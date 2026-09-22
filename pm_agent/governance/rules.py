@@ -12,7 +12,7 @@ import re
 from enum import IntEnum
 from typing import Callable
 
-from pm_agent.schemas import Artifact, ChangeRequest, Charter, Decision, ProjectProfile, RagThresholds, Risk
+from pm_agent.schemas import Artifact, ChangeRequest, Charter, Decision, ProjectProfile, Risk
 
 _ACTOR_RE = re.compile(r"^(human|agent|system):[\w .@+-]+$")
 
@@ -64,10 +64,23 @@ def _system_only(new: Artifact, previous: Artifact | None, actor: str) -> str | 
     return None
 
 
-def _thresholds_unchanged(new: ProjectProfile, previous: ProjectProfile | None, actor: str) -> str | None:
-    expected = previous.thresholds if previous else RagThresholds()
-    if new.thresholds != expected:
-        return "only a human may change RAG thresholds"
+# Profile fields that decide how status is judged, when the agent runs unattended, who hears
+# from it, and how much of your calendar it can see. An agent may not set or change them.
+_HUMAN_ONLY_PROFILE_FIELDS = {
+    "thresholds": "RAG thresholds",
+    "schedules": "schedules",
+    "timezone": "the schedule timezone",
+    "report_recipients": "report recipients",
+    "calendar_query": "the calendar filter",
+}
+
+
+def _human_only_profile_fields(new: ProjectProfile, previous: ProjectProfile | None, actor: str) -> str | None:
+    baseline = previous or ProjectProfile(id=new.id, project_id=new.project_id, name=new.name)
+    changed = [label for field, label in _HUMAN_ONLY_PROFILE_FIELDS.items()
+               if getattr(new, field) != getattr(baseline, field)]
+    if changed:
+        return "only a human may change " + ", ".join(changed)
     return None
 
 
@@ -113,7 +126,7 @@ def _change_request_status(new: ChangeRequest, previous: ChangeRequest | None, a
 _RULES: dict[str, list[Rule]] = {
     "work_item": [_system_only],
     "status_report": [_system_only],
-    "project_profile": [_thresholds_unchanged],
+    "project_profile": [_human_only_profile_fields],
     "charter": [_charter_approval_unchanged],
     "risk": [_risk_status],
     "decision": [_decision_status],

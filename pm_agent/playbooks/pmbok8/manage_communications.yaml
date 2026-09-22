@@ -11,7 +11,7 @@ summary: >
 triggers: [manual, "event:meeting_ended"]
 inputs: [meeting notes or transcript, calendar event, stakeholder]
 outputs: [action_item, decision (proposed), risk (proposed), issue, lesson]
-tools: [list_artifacts, artifact_schema, save_artifact, update_artifact]
+tools: [list_meetings, read_meeting_notes, list_artifacts, artifact_schema, save_artifact, update_artifact]
 host_capabilities: [google_calendar_read, google_drive_read, gmail_create_draft]
 autonomy: L3
 principles: [empowered_culture, accountable_leader, embed_quality]
@@ -22,8 +22,10 @@ quality_checks:
   - Action items completed in the meeting are marked done, not duplicated.
   - The follow-up is short, lists actions by owner, and is left as a draft.
 instructions: |
-  1. Get the notes. Ask the user to paste them, or find the meeting with the host's Calendar tools and
-     the notes doc with the Drive tools.
+  1. Get the notes. Use material provided with the request if there is any. Otherwise call
+     list_meetings (the last day or two) and read_meeting_notes for each project meeting you haven't
+     processed yet (check action_item sources). Without those tools, ask the user to paste the notes
+     or use the host's Calendar and Drive tools.
   2. Read open action items and proposed decisions (list_artifacts) so you update them rather than
      duplicate them.
   3. Extract:

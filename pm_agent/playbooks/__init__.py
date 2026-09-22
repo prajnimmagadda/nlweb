@@ -116,3 +116,15 @@ def get_playbook(playbook_id: str) -> Playbook:
     if playbook_id not in playbooks:
         raise LookupError(f"unknown playbook {playbook_id!r}; known: {sorted(playbooks)}")
     return playbooks[playbook_id]
+
+
+def resolve_playbook(name: str) -> Playbook:
+    """Find a playbook by full id ('pmbok8.risk.identify_and_analyze_risks') or short name."""
+    playbooks = load_playbooks()
+    if name in playbooks:
+        return playbooks[name]
+    matches = [p for p in playbooks.values() if p.id.rsplit(".", 1)[-1] == name]
+    if len(matches) != 1:
+        known = sorted(p.id.rsplit(".", 1)[-1] for p in playbooks.values())
+        raise LookupError(f"unknown playbook {name!r}; known: {known}")
+    return matches[0]
