@@ -1,0 +1,246 @@
+<title>Worst Breaches Casebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a casebook. A ranked damage chart opens, then one long dossier per incident: damage figures down the left rail, the story and the recovery steps on the right. */
+:root{
+  --bg:#f3f4f2; --surface:#ffffff; --surface-2:#e9ebe7; --line:#cfd3cc;
+  --fg:#15191c; --fg-2:#4d555b; --fg-3:#7b848a;
+  --accent:#b8321f; --accent-soft:#f6ddd7;
+  --series:#2a78d6; --grid:#dfe2dd; --focus:#2a78d6;
+  --ok:#1f7a3f; --ok-soft:#dcefe2;
+  --font-display:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Source Sans 3","Segoe UI",Roboto,sans-serif;
+  --font-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#151719; --surface:#1d2023; --surface-2:#24282c; --line:#363b40;
+    --fg:#eceeea; --fg-2:#b4bbb6; --fg-3:#858d90;
+    --accent:#e0634f; --accent-soft:#3d2320; --series:#3987e5; --grid:#2c3135; --focus:#3987e5;
+    --ok:#5cc07f; --ok-soft:#1d3426; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#151719; --surface:#1d2023; --surface-2:#24282c; --line:#363b40;
+  --fg:#eceeea; --fg-2:#b4bbb6; --fg-3:#858d90;
+  --accent:#e0634f; --accent-soft:#3d2320; --series:#3987e5; --grid:#2c3135; --focus:#3987e5;
+  --ok:#5cc07f; --ok-soft:#1d3426; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:28px 64px}
+h1,h2,h3,h4{font-family:var(--font-display);text-wrap:balance;margin:0}
+h1{font-size:clamp(30px,4.5vw,46px);font-weight:800;letter-spacing:-.01em;line-height:1.05}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
+header{display:grid;gap:14px;max-width:70ch;margin-bottom:28px}
+header p{margin:0;color:var(--fg-2);font-size:17px}
+.scope{border-left:3px solid var(--accent);padding:6px 12px;background:var(--surface);font-size:14px;color:var(--fg-2)}
+
+.chart{background:var(--surface);border:1px solid var(--line);padding:16px 18px 10px;margin-bottom:28px;min-width:0}
+.chart h2{font-size:18px}
+.chart .sub{font-size:13.5px;color:var(--fg-3);margin:2px 0 10px;max-width:70ch}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.chart text{font-family:var(--font-mono);font-size:11.5px;fill:var(--fg-2)}
+.chart .lab{fill:var(--fg)}
+.chart .grid{stroke:var(--grid)}
+.chart .bar{fill:var(--series)}
+.chart .bar.est{fill:var(--series);opacity:.55}
+.chart .legend{display:flex;gap:16px;font-size:12.5px;color:var(--fg-3);font-family:var(--font-mono);margin-top:6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:10px;background:var(--series);vertical-align:-1px;margin-right:6px;border-radius:2px}
+.legend i.est{opacity:.55}
+
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:28px}
+nav.toc a{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-2);text-decoration:none;border:1px solid var(--line);padding:5px 10px;background:var(--surface)}
+nav.toc a:hover{color:var(--fg);border-color:var(--fg-2)}
+nav.toc a:focus{outline:2px solid var(--focus);outline-offset:1px}
+
+article.case{display:grid;grid-template-columns:230px minmax(0,1fr);gap:0;background:var(--surface);border:1px solid var(--line);margin-bottom:22px;scroll-margin-top:16px}
+.rail{padding:20px 18px;border-right:1px solid var(--line);background:var(--surface-2);display:grid;align-content:start;gap:14px;min-width:0}
+.rail .rank{font-family:var(--font-mono);font-size:12px;color:var(--fg-3);letter-spacing:.06em}
+.rail .stat .n{font-family:var(--font-display);font-weight:700;font-size:24px;line-height:1.05;font-variant-numeric:tabular-nums}
+.rail .stat .l{font-size:13px;color:var(--fg-2);margin-top:2px}
+.rail .stat.hot .n{color:var(--accent)}
+.body{padding:20px 24px 24px;display:grid;gap:18px;min-width:0}
+.title h2{font-size:24px;font-weight:800;line-height:1.1}
+.title .meta{font-family:var(--font-mono);font-size:12.5px;color:var(--fg-3);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px 14px}
+.title .meta b{color:var(--fg-2);font-weight:500}
+.sect h3{font-size:12.5px;font-family:var(--font-mono);font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:6px}
+.sect p{margin:0 0 8px;max-width:72ch}
+.sect p:last-child{margin-bottom:0}
+ol.fix{margin:0;padding:0;list-style:none;display:grid;gap:8px;max-width:72ch;counter-reset:step}
+ol.fix li{display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;counter-increment:step}
+ol.fix li::before{content:counter(step);font-family:var(--font-mono);font-size:12px;color:var(--ok);background:var(--ok-soft);width:26px;height:26px;display:grid;place-items:center;border-radius:50%;margin-top:1px}
+.after{background:var(--accent-soft);border-left:3px solid var(--accent);padding:10px 14px;max-width:72ch}
+.after h3{color:var(--accent)}
+.after p{margin:0}
+footer{margin-top:28px;max-width:72ch;color:var(--fg-3);font-size:13px}
+footer p{margin:0 0 8px}
+@media (max-width:760px){
+  article.case{grid-template-columns:1fr}
+  .rail{border-right:0;border-bottom:1px solid var(--line);grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;padding:14px 16px}
+  .rail .rank{grid-column:1/-1}
+  .rail .stat .n{font-size:20px}
+  .body{padding:16px}
+  .title h2{font-size:21px}
+}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Casebook · sixteen incidents</div>
+  <h1>Worst Breaches Casebook</h1>
+  <p>The incidents that did the most damage, from a nation-state wiper that cost $10 billion to a casino help-desk call. Each case gives the damage in numbers, how it unfolded, and the concrete steps the victim took to recover.</p>
+  <div class="scope">Ranked by reported financial damage where a credible figure exists; otherwise by the scale of disruption. Costs are as reported by the victim, courts or regulators and converted to US dollars at the time. "Est." marks an outside estimate rather than the victim's own number.</div>
+</header>
+
+<section class="chart">
+  <h2>Reported damage, in millions of US dollars</h2>
+  <p class="sub">Direct costs to the victim or, for the two worms, the accepted global estimate. Ransoms paid are included where they were paid. Log scale is not used; the longest bar really is that much bigger.</p>
+  <div id="chart"></div>
+  <div class="legend"><span><i></i>victim's own figure</span><span><i class="est"></i>outside estimate</span></div>
+</section>
+
+<nav class="toc" id="toc" aria-label="Cases"></nav>
+
+<div id="cases"></div>
+
+<footer>
+  <p>Sources: company 10-K and 8-K filings, Maersk and Hydro investor briefings, the UK Department of Health WannaCry review, the HSE's PwC post-incident review, the US Cyber Safety Review Board reports on Lapsus$ and Storm-0558, the Mueller and Sandworm indictments, FTC, ICO and OCC settlement orders, Colonial Pipeline Senate testimony, UnitedHealth congressional testimony, the Nevada incident report, and reporting by Wired, Reuters, the BBC, Krebs on Security and BleepingComputer.</p>
+  <p>Companion page: the Breach Ledger lists 239 incidents in four columns; this casebook goes deep on the sixteen that hurt most.</p>
+</footer>
+</div>
+
+<script>
+const CASES=[
+{id:"notpetya",name:"NotPetya",year:2017,where:"Ukraine, then worldwide",who:"Russia's GRU (Sandworm)",cost:10000,est:true,
+ stats:[["$10B","global damage, est."],["$870M","Merck's loss"],["$300M","Maersk's loss"],["10 days","to rebuild Maersk's IT"]],
+ what:"Sandworm pushed a wiper disguised as ransomware through the update server of M.E.Doc, the accounting software almost every company in Ukraine uses to file taxes. It spread inside networks with the leaked EternalBlue exploit and a credential-stealing tool, encrypting the master boot record. The ransom screen was a decoy: there was no way to decrypt. Within hours it had jumped from Ukraine into Maersk, Merck, FedEx's TNT, Mondelez, Saint-Gobain and Nuance.",
+ found:"On 27 June 2017 Ukrainian banks, Kyiv's airport and the Chernobyl radiation monitors went dark at once. Maersk staff watched screens reboot across 76 port terminals in minutes. Security firms identified it as a wiper by that evening, and ESET traced the entry point to the M.E.Doc update on 3 July.",
+ fix:["Maersk shut down its entire global network and ran ports by hand, taking container bookings over WhatsApp and paper for ten days while ships kept sailing.","Its 150 domain controllers were all wiped, except one in Ghana that had been offline during a power cut. Staff flew the drive to London and used it as the seed to rebuild Active Directory.","Over ten days Maersk reinstalled 4,000 servers, 45,000 PCs and 2,500 applications, then spent months hardening what it had rebuilt.","Merck restored manufacturing from backups over weeks and borrowed HPV vaccine from the US national stockpile to cover lost production.","Ukraine's CERT and police seized M.E.Doc's servers; Microsoft and Cisco Talos published detections that stopped the second wave."],
+ after:"The US, UK and allies attributed the attack to Russia in February 2018, and six GRU officers were indicted in 2020. Merck and Mondelez sued their insurers over 'act of war' exclusions; Merck won a $1.4 billion ruling and Mondelez settled. Maersk's chairman called it a 'very significant wake-up call' and the company became a reference case for backups kept offline."},
+{id:"wannacry",name:"WannaCry",year:2017,where:"150 countries; UK NHS hardest hit",who:"North Korea's Lazarus Group",cost:4000,est:true,
+ stats:[["$4B","global damage, est."],["230,000","computers in one day"],["19,000","NHS appointments cancelled"],["£92M","NHS cost"]],
+ what:"A worm combined the leaked NSA EternalBlue exploit with ransomware, spreading machine to machine across any network with unpatched Windows SMB. It hit Telefónica, Renault factories, Deutsche Bahn boards and a third of England's NHS trusts, whose ageing Windows 7 and XP estates had not applied Microsoft's two-month-old patch.",
+ found:"At midday on 12 May 2017 hospital staff found locked screens demanding $300 in bitcoin. Researcher Marcus Hutchins, analysing a sample that afternoon, registered an unregistered domain the code checked before running. That was a kill switch the author had left in, and infections stopped spreading worldwide within hours.",
+ fix:["Hospitals diverted ambulances, cancelled operations and went back to paper for up to a week while IT teams isolated networks.","NHS Digital pushed the MS17-010 patch to every trust; Microsoft took the unusual step of releasing patches for unsupported Windows XP and Server 2003.","The kill-switch domain was kept alive under DDoS attack for weeks; copycat variants without the switch were caught by the now-applied patch.","The NHS signed a £150 million deal to move to Windows 10 and created a Data Security Centre with mandatory patching timelines.","Almost nobody paid: the attackers collected about $140,000 and never decrypted reliably."],
+ after:"The US, UK, Australia and Japan formally blamed North Korea in December 2017, and Park Jin Hyok was indicted in 2018. Hutchins was later arrested for unrelated teenage malware writing and given time served. The episode made 'patch within 14 days' a standard regulatory expectation."},
+{id:"change",name:"Change Healthcare",year:2024,where:"United States",who:"ALPHV/BlackCat, then RansomHub",cost:2900,est:false,
+ stats:[["$2.9B","UnitedHealth's cost"],["190M","people affected"],["$22M","ransom paid"],["$9B","advanced to providers"]],
+ what:"Change Healthcare, owned by UnitedHealth, processes about a third of all US medical claims. Attackers logged into a Citrix remote-access portal with stolen credentials and no multi-factor authentication, roamed for nine days, exfiltrated 6TB of records and then encrypted the systems. Pharmacies could not fill prescriptions, hospitals could not get paid, and small practices went weeks without revenue.",
+ found:"On 21 February 2024 Change took its systems offline after detecting the ransomware. ALPHV claimed the attack on its leak site a week later.",
+ fix:["UnitedHealth paid ALPHV $22 million in bitcoin. The gang kept the money and shut down without paying its affiliate, who then handed the data to RansomHub for a second extortion attempt.","Rather than restore the old environment, Change rebuilt its clearinghouse from the ground up on new infrastructure, bringing systems back one at a time from mid-March to the summer.","UnitedHealth advanced $9 billion in interest-free loans to providers who could not bill, and the government relaxed Medicare payment rules.","Multi-factor authentication was enforced on every external portal; the CEO testified to the Senate that the exposed Citrix server had simply been missed.","Breach notifications eventually went to 190 million people, the largest health-data notification in US history."],
+ after:"HHS opened a HIPAA investigation and proposed mandatory MFA and encryption rules for the health sector. Congress heard calls to break up UnitedHealth's vertical integration. The case became the clearest demonstration that a single clearinghouse can be systemic infrastructure."},
+{id:"jlr",name:"Jaguar Land Rover",year:2025,where:"United Kingdom",who:"Scattered Lapsus$ Hunters (claimed)",cost:2500,est:true,
+ stats:[["£1.9B","cost to UK economy, est."],["5+ weeks","production halted"],["£1.5B","government loan guarantee"],["5,000","supplier firms affected"]],
+ what:"Britain's largest car maker shut every plant worldwide on 31 August 2025 after finding intruders in its network. With production systems, parts logistics and dealer portals all down, 1,000 cars a day stopped being built, and a supply chain of thousands of small firms ran out of cash within weeks.",
+ found:"JLR's own monitoring caught the intrusion over the bank-holiday weekend and the company chose to pull the plug rather than risk encryption spreading. A group calling itself Scattered Lapsus$ Hunters posted screenshots claiming credit.",
+ fix:["JLR kept everything off for weeks while forensics teams checked each system, prioritising a clean rebuild over a fast one.","Production restarted in phases from 8 October: engine plant first, then Solihull, Halewood and Nitra, with each line validated before the next.","The UK government underwrote a £1.5 billion loan so JLR could pay suppliers early; suppliers were told to invoice before parts shipped.","Dealer and parts systems came back on new credentials with hardened remote access; the company has not said whether a ransom was paid.","The Cyber Monitoring Centre classed it a Category 3 systemic event, the most economically damaging cyber incident in UK history."],
+ after:"The attack came months after the same crews hit Marks & Spencer and Co-op, and it drove the UK's Cyber Security and Resilience Bill forward. Insurers reported JLR had no cyber policy in force, which turned the question of who carries systemic cyber risk into a political one."},
+{id:"equifax",name:"Equifax",year:2017,where:"United States",who:"China's PLA (four officers indicted)",cost:1400,est:false,
+ stats:[["$1.4B","total cost"],["147.9M","people affected"],["$700M","FTC and state settlement"],["76 days","inside undetected"]],
+ what:"Equifax ran a consumer-dispute website on Apache Struts. A critical flaw was announced on 7 March 2017 with a patch; an internal email told staff to apply it, but the scan that was meant to find vulnerable servers missed this one. From 13 May attackers ran 9,000 queries against 48 databases and pulled names, Social Security numbers, birth dates and driver's licences for nearly half of adult Americans.",
+ found:"An expired certificate on Equifax's traffic-inspection tool had blinded it for ten months. When the certificate was renewed on 29 July, the suspicious traffic appeared immediately and the intrusion was found that day.",
+ fix:["The dispute portal was taken offline and every Struts instance patched; the company hired Mandiant and disclosed on 7 September.","CEO Richard Smith, the CIO and the CSO all left within weeks; two executives were later convicted of insider trading for selling stock before disclosure.","Equifax spent $1.25 billion on a security and technology rebuild: migrating to cloud, a new patch-management process with hard deadlines, and certificate monitoring.","Free credit monitoring and a credit-freeze right for all Americans were written into federal law in 2018.","The $700 million settlement funded compensation, monitoring and a court-supervised security programme with a monitor for seven years."],
+ after:"The Justice Department indicted four PLA officers in 2020; none will face trial. The breach is the standard case for why asset inventories and patch tracking matter more than any single security product, and it gave US consumers the right to freeze credit for free."},
+{id:"target",name:"Target",year:2013,where:"United States",who:"Eastern European carding crew",cost:292,est:false,
+ stats:[["$292M","gross cost"],["40M","cards stolen"],["70M","customer records"],["$18.5M","state settlement"]],
+ what:"Attackers phished an HVAC contractor in Pennsylvania, used its vendor-portal login to reach Target's network, and from there reached the point-of-sale systems. Memory-scraping malware on 1,800 stores' registers captured card data from 27 November through the busiest shopping days of the year.",
+ found:"Target's FireEye system flagged the malware on 30 November and again on 2 December; the alerts were reviewed and dismissed. The Justice Department and Secret Service told Target on 12 December after banks saw fraud, and Brian Krebs broke the story on 18 December.",
+ fix:["The malware was removed from all registers by 15 December and disclosure followed on 19 December.","Target created its first CISO role, segmented vendor access from payment networks and committed $100 million to chip-and-PIN cards and terminals.","CEO Gregg Steinhafel and CIO Beth Jacob resigned in 2014; the board survived a proxy adviser's call to remove it.","Banks reissued cards; Target settled with Visa for $67 million, MasterCard for $19 million, consumers for $10 million and 47 states for $18.5 million.","The retailer's security operations centre was rebuilt with 24-hour alert triage, the gap that had let the alerts go unanswered."],
+ after:"Target's breach pushed the US card industry to its 2015 chip liability shift. It also became the first case where a board was explicitly judged on cyber oversight and where a vendor's weak link was shown to reach a Fortune 50 network."},
+{id:"solarwinds",name:"SolarWinds Orion",year:2020,where:"United States and allies",who:"Russia's SVR (APT29)",cost:100,est:true,
+ stats:[["18,000","customers got the implant"],["9","US agencies burrowed into"],["14 months","in the build system"],["$100M+","industry cleanup, est."]],
+ what:"The SVR compromised SolarWinds' software build process and inserted a backdoor (SUNBURST) into signed updates of Orion, a network-monitoring tool used by most of the Fortune 500 and the US government. The implant lay dormant for two weeks, then checked in to attacker servers. From the 18,000 installs, the attackers chose about 100 targets, including the Treasury, Commerce, Homeland Security and Microsoft.",
+ found:"FireEye noticed that an employee had registered a second phone for multi-factor authentication, investigated, and found its own red-team tools stolen. Tracing backwards led to the Orion update on 8 December 2020. It disclosed on 13 December.",
+ fix:["CISA issued Emergency Directive 21-01 ordering every federal agency to power down Orion immediately.","Microsoft, FireEye and GoDaddy seized the implant's command domain and turned it into a kill switch that disabled SUNBURST on any machine that checked in.","SolarWinds rebuilt its build pipeline from scratch: three parallel builds on separate systems that must produce identical output before release, and a 'Secure by Design' programme.","Victims rebuilt affected identity systems entirely, because the attackers had forged authentication tokens; the Treasury and Justice Departments rotated every credential.","Executive Order 14028 in May 2021 required software bills of materials and secure development attestations for anything sold to the US government."],
+ after:"The US sanctioned Russia and expelled diplomats in April 2021. The SEC charged SolarWinds and its CISO with fraud in 2023 for overstating security; most charges were dismissed in 2024. Supply-chain attestation became a standard procurement requirement."},
+{id:"colonial",name:"Colonial Pipeline",year:2021,where:"United States",who:"DarkSide ransomware affiliate",cost:0,est:false,
+ stats:[["6 days","pipeline shut"],["$4.4M","ransom paid"],["$2.3M","recovered by DOJ"],["45%","of East Coast fuel supply"]],
+ what:"An affiliate of the DarkSide ransomware service logged into a legacy VPN account that had no multi-factor authentication, using a password found in a previous leak. They took 100GB of data and encrypted the billing and business systems. Colonial shut the pipeline itself as a precaution because it could no longer meter or bill fuel.",
+ found:"A control-room employee found a ransom note on a screen at about 5am on 7 May 2021.",
+ fix:["Colonial paid 75 bitcoin ($4.4 million) within hours; the decryptor was so slow that the company restored mostly from its own backups anyway.","The pipeline restarted on 12 May after the billing systems were validated clean, with fuel reaching all markets by 15 May.","The FBI traced the bitcoin and seized 63.7 coins from the affiliate's wallet in June, the first public ransom clawback.","The legacy VPN was retired and MFA enforced on all remote access; the company separated the operational pipeline network from corporate IT more strictly.","DarkSide lost its servers and shut down within a week under pressure from Russian hosts after the US named it."],
+ after:"Panic buying emptied petrol stations across the south-east and the president declared an emergency. The TSA, which had relied on voluntary guidance, issued its first mandatory pipeline cyber directives. The CEO's defence of paying, in front of the Senate, set the tone for later debates on ransom bans."},
+{id:"hse",name:"Irish Health Service (HSE)",year:2021,where:"Ireland",who:"Conti ransomware gang",cost:120,est:true,
+ stats:[["€100M+","direct cost in year one"],["80%","of IT estate shut down"],["4 months","to full recovery"],["0","ransom paid"]],
+ what:"An employee opened a malicious Excel attachment on 18 March 2021. Conti operators moved through the health service's flat network for eight weeks, triggering antivirus alerts that were seen but not acted on, then encrypted systems at 4am on 14 May. Every hospital lost its electronic records, radiology, lab and radiotherapy systems the same morning.",
+ found:"Hospitals reported systems down at dawn on 14 May. The HSE shut the entire national network itself to stop the spread, which is why 80% of the estate went dark.",
+ fix:["Hospitals ran on paper for weeks; cancer and maternity services were prioritised with manual processes while 2,000 systems were checked one by one.","The government refused the $20 million demand. Conti posted a decryption key for free on 20 May, which the HSE validated with the NCSC and Mandiant before using.","The High Court granted an injunction against publishing the stolen data, which was then used to make hosting providers remove it.","Rebuilding took until September 2021: 100,000 devices reimaged, a new segmented network, endpoint detection on every machine, and a security operations centre run around the clock.","A PwC review in December 2021 found no CISO, no central security team and a 'frail' IT estate; the HSE appointed a CISO and board-level oversight."],
+ after:"Costs rose past €100 million in the first year and are expected to reach several hundred million with the rebuild. The Irish Data Protection Commission and courts heard thousands of patient complaints. It remains the largest attack on a national health system and the clearest case of a gang backing down."},
+{id:"sony",name:"Sony Pictures Entertainment",year:2014,where:"United States",who:"North Korea (Guardians of Peace)",cost:35,est:false,
+ stats:[["$35M","cost reported to investors"],["100TB","data stolen"],["47,000","Social Security numbers leaked"],["3 months","on paper and fax"]],
+ what:"Weeks before the release of The Interview, a comedy about assassinating Kim Jong Un, attackers wiped Sony Pictures' network, leaked five unreleased films, executives' emails and employee medical records, and threatened theatres with violence. It was the first destructive state attack on a US company over a cultural product.",
+ found:"On 24 November 2014 employees arrived to find a red skull on every screen with the message 'Hacked by #GOP'. The wiper had destroyed thousands of workstations and half the servers.",
+ fix:["The studio unplugged itself and ran payroll by cheque, fax and old BlackBerry phones found in a basement for weeks.","Mandiant rebuilt the network from scratch rather than trusting any surviving system; the attackers had held admin credentials for months.","Sony pulled the theatrical release, then put the film out online and in independent cinemas on Christmas Day after the president criticised the decision.","Employees received identity protection; a class action over leaked medical data settled for $8 million.","Internal security was rebuilt with a new CISO reporting line, network segmentation and mandatory encryption of HR data."],
+ after:"The FBI attributed the attack to North Korea within a month, and President Obama imposed new sanctions in January 2015. Park Jin Hyok was indicted in 2018. The case established that a government would respond publicly to a cyberattack on a private company."},
+{id:"opm",name:"US Office of Personnel Management",year:2014,where:"United States",who:"China's Ministry of State Security",cost:500,est:true,
+ stats:[["21.5M","security-clearance files"],["5.6M","fingerprint sets"],["$500M+","monitoring and response, est."],["10 years","of credit monitoring"]],
+ what:"Two linked intrusions took the full background-investigation files of everyone who had applied for a US security clearance since 2000, including interviews about relatives, foreign contacts, drug use and finances, plus fingerprints. Attackers used a contractor's credentials and planted malware in late 2014; a 2015 inspector-general report had already called OPM's security a 'material weakness'.",
+ found:"OPM's new monitoring tools detected the malware in April 2015, a year after the intrusion began; the agency announced the personnel-file breach in June and the clearance-file breach in July.",
+ fix:["OPM took the e-QIP clearance system offline for a month to fix flaws, delaying security clearances government-wide.","Director Katherine Archuleta resigned in July 2015 after bipartisan demands.","The government awarded a $133 million, later $500 million-plus, contract for identity monitoring for all victims for a decade.","Clearance processing was moved to a new Defense Department system, the National Background Investigation Services, built from scratch.","The federal 'cyber sprint' forced two-factor smart-card login across agencies, lifting privileged-account coverage from 20% to over 80% in a month."],
+ after:"A Chinese national, Yu Pingan, was arrested in 2017 over the malware used. Victims won a $63 million settlement in 2022. The stolen files are assumed to be in Chinese intelligence hands permanently, which is why the case is counted among the worst despite no financial fraud."},
+{id:"yahoo",name:"Yahoo",year:2013,where:"United States",who:"Russia's FSB with hired criminals",cost:350,est:false,
+ stats:[["3B","accounts, every one"],["$350M","cut from sale price"],["$117.5M","class settlement"],["$35M","SEC penalty"]],
+ what:"In 2013 attackers took the entire user database, with weakly hashed passwords and security questions. In 2014 FSB-directed hackers forged Yahoo cookies to read the mail of targets of interest, including Russian journalists and US officials. Yahoo's security team knew of the 2014 intrusion within days but the company told investors nothing for two years.",
+ found:"The 2014 breach came to light in 2016 when Verizon was buying Yahoo and a hacker offered 200 million accounts for sale. The 2013 breach, first put at a billion accounts, was revised to all three billion in 2017 after Verizon's forensics.",
+ fix:["Yahoo forced password resets and invalidated unencrypted security questions for every account, and killed the forged-cookie mechanism by rotating signing keys.","Verizon renegotiated the deal, cutting $350 million from the price and splitting future liabilities.","The SEC fined Yahoo's successor $35 million in 2018, the first penalty for failing to disclose a breach to investors.","A $117.5 million class settlement in 2019 funded two years of monitoring for 194 million US users.","Karim Baratov, the Canadian hacker hired by the FSB, was sentenced to five years; the Russian officers were indicted but remain abroad."],
+ after:"The general counsel resigned and the CEO lost her bonus after an internal review found the legal team had not investigated properly. The SEC's 2018 disclosure guidance, and later its four-day breach-reporting rule, trace back to Yahoo."},
+{id:"stuxnet",name:"Stuxnet (Natanz)",year:2010,where:"Iran",who:"United States and Israel (reported)",cost:0,est:true,
+ stats:[["~1,000","centrifuges destroyed"],["4","Windows zero-days"],["2 years","delay to Iran's programme, est."],["100,000+","collateral infections"]],
+ what:"A worm spread on USB sticks into the air-gapped Natanz enrichment plant, found Siemens S7 controllers running specific frequency converters, and periodically sped the centrifuges to destructive speeds while feeding recorded normal readings to the operators' screens. Engineers replaced failing centrifuges for over a year without finding a cause.",
+ found:"A Belarusian antivirus firm, VirusBlokAda, found the code in June 2010 on a customer's machines that kept crashing. Symantec and Langner Communications spent months reversing it and concluded in September 2010 that Natanz was the target.",
+ fix:["Iran replaced the destroyed centrifuges and restored enrichment within a year, then publicly admitted the attack in November 2010.","Siemens and Microsoft patched the vulnerabilities; the two stolen Taiwanese code-signing certificates were revoked.","Iran air-gapped its plant networks more strictly, built an Iranian cyber command and a 'Cyber Police', and began its own offensive programme, which produced Shamoon two years later.","Industrial-control vendors created the first ICS security programmes; the US ICS-CERT became a permanent body.","No one was prosecuted; neither government has ever acknowledged the operation."],
+ after:"Stuxnet proved code could destroy physical equipment and started the era of state cyber sabotage. Iran's retaliation against Saudi Aramco and US banks, and the later grid attacks in Ukraine, all descend from it."},
+{id:"aramco",name:"Saudi Aramco (Shamoon)",year:2012,where:"Saudi Arabia",who:"Iran (Cutting Sword of Justice)",cost:0,est:true,
+ stats:[["35,000","computers wiped"],["5 months","to full recovery"],["50,000","hard drives bought at once"],["0","barrels of lost production"]],
+ what:"On 15 August 2012, during Ramadan when most staff were away, a wiper erased the master boot record of three quarters of Aramco's corporate PCs and left an image of a burning American flag. Email, phones and document systems vanished in hours. The attackers had come in through a phishing email and a single administrator's credentials.",
+ found:"Technicians saw machines failing across the company simultaneously and physically pulled network cables from every office in the world the same afternoon.",
+ fix:["Aramco disconnected itself from the internet entirely and ran the world's largest oil company on typewriters, fax and paper for weeks; tanker loading was managed by hand.","The company bought 50,000 hard drives in one order, flying them from factories in Asia and briefly tightening the global supply.","Oil production, which ran on a separate industrial network, was never interrupted, and Aramco gave away domestic fuel free for days because it could not bill.","The corporate network was rebuilt over five months with full segmentation from operations and a new cyber-security division.","The attack was blamed by US officials on Iran within weeks; a second Shamoon wave hit Saudi targets in 2016 and 2018."],
+ after:"Shamoon showed that a wiper could nearly take down a national champion, and that keeping industrial controls separate from office IT had saved the business. Gulf states built national cyber agencies in response."},
+{id:"mgm",name:"MGM Resorts and Caesars",year:2023,where:"United States",who:"Scattered Spider with ALPHV",cost:100,est:false,
+ stats:[["$100M","MGM's loss"],["$15M","Caesars paid"],["10 days","MGM casinos disrupted"],["10 minutes","phone call that started it"]],
+ what:"English-speaking teenagers found an MGM employee on LinkedIn, phoned the IT help desk pretending to be him, and had his Okta single-sign-on password reset. From there they reached the identity servers and, when MGM cut them off, deployed ALPHV ransomware on 100 ESXi hosts. Slot machines, room keys, ATMs and reservations all failed on the Las Vegas Strip. Caesars had been hit the same way weeks earlier and quietly paid.",
+ found:"MGM guests found slot machines dark and keycards dead on 10 September 2023; the company confirmed a 'cybersecurity issue' on social media the next day. ALPHV posted a detailed account of the help-desk call on 14 September.",
+ fix:["MGM refused to pay and took its own systems offline, running hotels manually with paper check-in and cash for ten days.","Identity systems were rebuilt and Okta rules changed so that help-desk password resets require video identity checks.","Caesars paid about $15 million of a $30 million demand to stop a customer-database leak and disclosed in an SEC filing.","MGM reported a $100 million hit to the quarter and settled customer class actions for $45 million in 2025.","Arrests began in 2024: Tyler Buchanan in Spain, Noah Urban in Florida, and a 17-year-old in the UK, in the first prosecutions of the group."],
+ after:"The attack proved that a help desk is the weakest point of a modern identity system. The same crew went on to hit Marks & Spencer, Co-op, Qantas and the insurance sector in 2025, and the industry adopted identity-verification rules for all credential resets."},
+{id:"hydro",name:"Norsk Hydro",year:2019,where:"Norway, 40 countries",who:"LockerGoga crew",cost:70,est:false,
+ stats:[["$70M","cost"],["22,000","computers encrypted"],["170","plants switched to manual"],["0","ransom paid"]],
+ what:"Ransomware spread through the aluminium maker's Active Directory at night, locking 22,000 machines across 170 sites. Extrusion plants that cut metal to customer specifications lost their order systems; smelters, which cannot safely stop, had to be run by hand.",
+ found:"The night shift in Hydro's Hungarian plant saw screens locking around midnight on 19 March 2019 and the security team recognised ransomware within the hour.",
+ fix:["Hydro refused to negotiate from the first morning and said so publicly, holding daily press briefings with its CFO on what was and was not working.","Plants ran on manual operations and printed order lists; retired workers came back to help run the lines by hand.","Every machine was reinstalled from clean images rather than restored, and the domain was rebuilt; it took weeks for offices and months for the plants.","The company kept customers informed daily and its share price barely moved; insurance later covered about $20 million.","Investigators in Norway, Ukraine, Switzerland and France arrested twelve members of the LockerGoga crew in October 2021."],
+ after:"Hydro's handling became the model that governments cite for not paying: full transparency, manual fallbacks and clean rebuilds. Its CISO's talks on the recovery are standard training material across industry."},
+];
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// Chart: reported damage, USD millions, only cases with a number
+const chartItems=CASES.filter(c=>c.cost>0).sort((a,b)=>b.cost-a.cost).map(c=>({label:c.name,v:c.cost,est:c.est}));
+(function(){
+  const W=720,rowH=24,gap=2,labelW=250,pad=6,H=chartItems.length*rowH+pad*2,max=Math.max(...chartItems.map(i=>i.v)),plotW=W-labelW-70;
+  const fmt=v=>v>=1000?"$"+(v/1000).toFixed(v%1000?1:0)+"B":"$"+(v<10?v.toFixed(1):Math.round(v))+"M";
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Reported damage by incident">`;
+  [0,2500,5000,7500,10000].forEach(t=>{const x=labelW+(t/max)*plotW;s+=`<line class="grid" x1="${x}" y1="${pad}" x2="${x}" y2="${H-pad}"/>`});
+  chartItems.forEach((it,i)=>{const y=pad+i*rowH,w=Math.max(2,(it.v/max)*plotW);
+    s+=`<text class="lab" x="${labelW-8}" y="${y+rowH/2+4}" text-anchor="end">${esc(it.label)}</text>`;
+    s+=`<rect class="bar${it.est?" est":""}" x="${labelW}" y="${y+gap}" width="${w}" height="${rowH-gap*2}" rx="4"><title>${esc(it.label)}: ${fmt(it.v)}</title></rect>`;
+    s+=`<text x="${labelW+w+6}" y="${y+rowH/2+4}">${fmt(it.v)}${it.est?" est.":""}</text>`;});
+  s+="</svg>"; $("#chart").innerHTML=s;
+})();
+
+$("#toc").innerHTML=CASES.map(c=>`<a href="#${c.id}">${esc(c.name)} · ${c.year}</a>`).join("");
+
+$("#cases").innerHTML=CASES.map((c,i)=>`<article class="case" id="${c.id}">
+  <aside class="rail">
+    <div class="rank">CASE ${String(i+1).padStart(2,"0")} · ${c.year}</div>
+    ${c.stats.map(([n,l],j)=>`<div class="stat${j===0?" hot":""}"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`).join("")}
+  </aside>
+  <div class="body">
+    <div class="title"><h2>${esc(c.name)}</h2><div class="meta"><span>Where <b>${esc(c.where)}</b></span><span>Who <b>${esc(c.who)}</b></span></div></div>
+    <div class="sect"><h3>What happened</h3><p>${esc(c.what)}</p></div>
+    <div class="sect"><h3>How they found out</h3><p>${esc(c.found)}</p></div>
+    <div class="sect"><h3>How they fixed it</h3><ol class="fix">${c.fix.map(f=>`<li><span>${esc(f)}</span></li>`).join("")}</ol></div>
+    <div class="after"><h3>What changed after</h3><p>${esc(c.after)}</p></div>
+  </div>
+</article>`).join("");
+</script>
